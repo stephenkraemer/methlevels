@@ -7,6 +7,8 @@ Can deal with non-consecutive repIDs in swarm plots
 
 from functools import partial
 from pathlib import Path
+from typing import Optional
+
 import statsmodels.stats.api as sms
 
 
@@ -24,9 +26,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotnine as gg
 
+from methlevels.utils import NamedColumnsSlice as ncls
 
 class MethInRegions:
-    def __init__(self, meth_stats=None, anno=None, filepath=None,
+    def __init__(self, meth_stats: Optional[pd.DataFrame] = None, anno: Optional[pd.DataFrame] = None, filepath: Optional[str] = None,
                  pop_name_abbreviations=None, pop_order=None):
         self.pop_order = pop_order
         self.pop_name_abbreviations = pop_name_abbreviations
@@ -36,8 +39,27 @@ class MethInRegions:
 
 
     def read_meth_levels(self):
+        """
 
-        meth_stats_with_anno = pd.read_feather(self.filepath)
+        - chromosome name will be changed to chr, chrom and #chrom as input also allowed
+        - uses pop order from df if none given, currently not save as attribute, only used in this function
+        - names: beta, n_meth, n_total; also recognizes beta_value, renames to beta
+        """
+
+        if self.filepath.endswith('.feather'):
+            meth_stats_with_anno = pd.read_feather(self.filepath)
+        else:
+            meth_stats_with_anno = pd.read_pickle(self.filepath)
+
+        grange_col_name_mapping = {
+            'chrom': 'chr',
+            '#chrom': 'chr',
+            '#chr': 'chr',
+            'Chromosome': 'chr',
+            'Start': 'start',
+            'End': 'end',
+        }
+        meth_stats_with_anno = meth_stats_with_anno.rename(columns = chrom_name_mapping)
 
         # Not sure whether it is a feather/R bug that start and end are float
         # or whether this is something I have to fix on my side
@@ -58,7 +80,7 @@ class MethInRegions:
         # stats, e.g. hsc_all_n_meth
         meth_stat_regex = (rf"([\w-]+)"
                            rf"_(\d+|all)"
-                           f"_(beta|n_meth|n_total)")
+                           f"_(beta_value|n_meth|n_total)")
         match_objects = [re.match(meth_stat_regex, s)
                          for s in meth_stats_with_anno.columns]
 
@@ -106,8 +128,11 @@ class MethInRegions:
 
         meth_stats = meth_stats.rename(columns=self.pop_name_abbreviations, level=0)
 
-        pop_order = (pd.Series(self.pop_order)
-                     .replace(self.pop_name_abbreviations).tolist())
+        if self.pop_order:
+            pop_order = (pd.Series(self.pop_order)
+                         .replace(self.pop_name_abbreviations).tolist())
+        else:
+            pop_order = meth_stats.columns.get_level_values(0).unique()
 
         meth_stats_pops = meth_stats.columns.get_level_values(0).unique()
         if not (set(meth_stats_pops) == set(pop_order)):
@@ -163,7 +188,7 @@ class MethInRegions:
             self, coverage_threshold, max_fraction_lost):
 
 
-        coverage_stats = self.meth_stats.loc[:, idxs[:, :, 'n_total']]
+        coverage_stats = self.meth_stats.loc[:, ncls(stat='n_total')]
         per_sample_quantiles = coverage_stats.quantile(max_fraction_lost, axis=0)
         per_sample_thresholds = (per_sample_quantiles
                                  .where(per_sample_quantiles < coverage_threshold,
@@ -216,6 +241,22 @@ class MethInRegions:
             anno_copy = self.anno.copy()
         return MethInRegions(meth_stats=pop_meth_stats, anno=anno_copy)
 
+    def convert_to_populations(self):
+        pop_stats_df = self.meth_stats.groupby(level=['pop', 'stat'], axis=1).sum()
+
+        def update_beta_values(group_df):
+            group_df[group_df.name, 'beta_value'] = group_df[group_df.name, 'n_meth'] / group_df[group_df.name, 'n_total']
+            return group_df
+        pop_stats_df = pop_stats_df.groupby(level='pop', axis=1).apply(update_beta_values)
+
+        if self.anno is None:
+            anno_copy = None
+        else:
+            anno_copy = self.anno.copy()
+
+        return MethInRegions(meth_stats=pop_stats_df, anno=anno_copy)
+
+
     def restrict_to_pop_or_rep_level(self, level):
         if level == 'pop':
             return self.restrict_to_populations()
@@ -225,6 +266,7 @@ class MethInRegions:
             ValueError(f'Unknown level {level}')
 
     def plot_heatmap(self, n_features):
+        """This needs to be """
         heatmap_data = self.meth_stats.sample(n_features)
 
     def sample(self, n, random_state=123):
@@ -235,16 +277,11 @@ class MethInRegions:
         else:
             return self
 
-    def get_most_var_betas(self, n, level):
+    def get_most_var_betas(self, n):
         if 0 < n < self.meth_stats.shape[0]:
-            if level == 'pop':
-                betas = self.meth_stats.loc[:, idxs[:, 'all', 'beta']]
-            elif level == 'rep':
-                betas = (self.meth_stats.drop('all', level=1, axis=1)
-                             .loc[:, idxs[:, :, 'beta']])
-            else:
-                raise ValueError(f'Unknown level {level}')
-            most_var_idx = (betas.var(axis=1)
+            most_var_idx = (self.meth_stats
+                            .loc[:, ncls(stat='beta_value')]
+                            .var(axis=1)
                             .sort_values(ascending=False)
                             .iloc[0:n]
                             .index
@@ -255,14 +292,11 @@ class MethInRegions:
         else:
             return self
 
-    def choose_n_observations(self, n,
-                              method='sample', level=None, random_state=123):
+    def choose_n_observations(self, n, method='sample', random_state=123):
         if method=='sample':
             return self.sample(n, random_state)
-        elif method=='most_var':
-            if level is None:
-                raise ValueError('Level required when using most_var')
-            return self.get_most_var_betas(n, level)
+        elif method=='mostvar':
+            return self.get_most_var_betas(n)
 
     def __str__(self):
         str(self.meth_stats.head())
@@ -272,8 +306,7 @@ class MethInRegions:
         new_anno = self.anno.loc[bool_idx, :]
         return MethInRegions(new_meth_stats, new_anno)
 
-    def qc_filter(self, coverage=None, size=None,
-                  min_delta=None, level=None):
+    def qc_filter(self, coverage=None, size=None, min_delta=None):
 
         meth_in_regions = self
         if coverage:
@@ -287,13 +320,7 @@ class MethInRegions:
 
         if min_delta:
 
-            if level == 'pop':
-                betas = meth_in_regions.meth_stats.loc[:, idxs[:, 'all', 'beta']]
-            elif level == 'rep':
-                betas = (meth_in_regions.meth_stats.drop('all', level=1, axis=1)
-                             .loc[:, idxs[:, :, 'beta']])
-            else:
-                raise ValueError(f'Unknown level {level}')
+            betas = meth_in_regions.meth_stats.loc[:, ncls(stat='beta_value')]
 
             abs_deltas = betas.max(axis=1) - betas.min(axis=1)
             has_sufficient_delta = abs_deltas > min_delta
@@ -316,11 +343,12 @@ class MethInRegions:
     def to_df_pickle(self, fp):
         raise NotImplemented
 
-    def save(self, filepaths, pop_name_abbreviations):
+    def save(self, filepaths, pop_name_abbreviations=None):
         multi_idx = self.meth_stats.columns
-        reverse_abbreviation_mapping = {v:k for k,v in pop_name_abbreviations.items()}
-        self.meth_stats = self.meth_stats.rename(reverse_abbreviation_mapping,
-                                                 axis=1, level=0)
+        if pop_name_abbreviations:
+            reverse_abbreviation_mapping = {v:k for k,v in pop_name_abbreviations.items()}
+            self.meth_stats = self.meth_stats.rename(reverse_abbreviation_mapping,
+                                                     axis=1, level=0)
         self.meth_stats.columns = self.get_flat_columns()
         res = pd.concat([self.anno, self.meth_stats], axis=1).reset_index()
         for fp in filepaths:
@@ -374,7 +402,7 @@ def corr_heatmap(meth_in_regions: MethInRegions, filepath,
     meth_in_regions = meth_in_regions.restrict_to_replicates()
     meth_in_regions.meth_stats.head()
     beta_values = (meth_in_regions.meth_stats
-                       .loc[:, (samples, slice(None), 'beta')])
+                       .loc[:, (samples, slice(None), 'beta_value')])
     beta_values.columns = beta_values.columns.droplevel(2)
     beta_values.columns = ['_'.join(level_elems) for level_elems in zip(beta_values.columns.get_level_values(0),
                                                                         beta_values.columns.get_level_values(1))]
@@ -556,7 +584,7 @@ def create_average_distribution_plots(meth_levels_fp,
     rep_level_stats = (meth_in_regions
           .restrict_to_replicates()
           .apply_fraction_loss_capped_coverage_limit(*coverage_filter_args)
-          .meth_stats.loc[:, idxs[:, :, 'beta']]
+          .meth_stats.loc[:, idxs[:, :, 'beta_value']]
           .mean()
           .to_frame('mean_beta')
           .reset_index()
@@ -619,51 +647,51 @@ def create_average_distribution_plots(meth_levels_fp,
             out_png = output_paths['swarm'])
 
 
-average_methylation_plot = ro.r('''
-    average_methylation_plot = function(pop_level_stats, rep_level_stats,
-                                        errorbars, trendline,
-                                        out_png, width, height,
-                                        rep_point_size,
-                                        mean_point_size) {
-      g = ggplot(pop_level_stats, aes(x = x, y = mean_beta))
-      if (trendline) {
-        g = g + geom_line(size=0.1)
-      }
-      # why do i use position_dodge - unnecessary now that I have my own
-      # offset computation?
-      g = g + geom_point(data = rep_level_stats,
-                         mapping = aes(color=rep),
-                         size=rep_point_size, shape=16, alpha=0.8)
-      if (errorbars) {
-        g = g + geom_errorbar(mapping=aes(ymin=lower, ymax=upper),
-                              width=0.2, size=0.1)
-      }
-      if (errorbars) {
-        g = g + geom_point(color='black', shape=18, size=mean_point_size, stroke=0.2)
-      }
-      g = g + scale_y_continuous(limits = c(0,1)) +
-        scale_x_continuous(
-          breaks = seq(1, length(levels(pop_level_stats[['pop']]))),
-          labels = levels(pop_level_stats[['pop']])) +
-        theme_classic(base_size=6) +
-        labs(y='Average methylation', color='Repl.') +
-        theme(axis.title.x = element_blank()) +
-        theme(legend.key.height = unit(0.3, 'cm'),
-              legend.key.width = unit(0.2, 'cm'),
-              legend.margin=margin(0,0,0,0),
-              legend.box.margin=margin(0,0,0,0),
-              legend.box.spacing=unit(0.2, 'cm'),
-              plot.margin=unit(c(0.1,0.1,0.1,0.1), 'cm'))
-      # if (length(levels(pop_level_stats[['pop']])) > 4) {
-      if (TRUE) {
-        g = g + theme(axis.text.x = element_text(angle=90, hjust=1, vjust=0.5))
-      }
-      ggsave(out_png, width=width, height=height, units='cm')
-      ggsave(str_replace(out_png, 'png', 'pdf'),
-             width=width, height=height, units='cm')
-      cat('saved to ', out_png)
-    }
-''')
+# average_methylation_plot = ro.r('''
+#     average_methylation_plot = function(pop_level_stats, rep_level_stats,
+#                                         errorbars, trendline,
+#                                         out_png, width, height,
+#                                         rep_point_size,
+#                                         mean_point_size) {
+#       g = ggplot(pop_level_stats, aes(x = x, y = mean_beta))
+#       if (trendline) {
+#         g = g + geom_line(size=0.1)
+#       }
+#       # why do i use position_dodge - unnecessary now that I have my own
+#       # offset computation?
+#       g = g + geom_point(data = rep_level_stats,
+#                          mapping = aes(color=rep),
+#                          size=rep_point_size, shape=16, alpha=0.8)
+#       if (errorbars) {
+#         g = g + geom_errorbar(mapping=aes(ymin=lower, ymax=upper),
+#                               width=0.2, size=0.1)
+#       }
+#       if (errorbars) {
+#         g = g + geom_point(color='black', shape=18, size=mean_point_size, stroke=0.2)
+#       }
+#       g = g + scale_y_continuous(limits = c(0,1)) +
+#         scale_x_continuous(
+#           breaks = seq(1, length(levels(pop_level_stats[['pop']]))),
+#           labels = levels(pop_level_stats[['pop']])) +
+#         theme_classic(base_size=6) +
+#         labs(y='Average methylation', color='Repl.') +
+#         theme(axis.title.x = element_blank()) +
+#         theme(legend.key.height = unit(0.3, 'cm'),
+#               legend.key.width = unit(0.2, 'cm'),
+#               legend.margin=margin(0,0,0,0),
+#               legend.box.margin=margin(0,0,0,0),
+#               legend.box.spacing=unit(0.2, 'cm'),
+#               plot.margin=unit(c(0.1,0.1,0.1,0.1), 'cm'))
+#       # if (length(levels(pop_level_stats[['pop']])) > 4) {
+#       if (TRUE) {
+#         g = g + theme(axis.text.x = element_text(angle=90, hjust=1, vjust=0.5))
+#       }
+#       ggsave(out_png, width=width, height=height, units='cm')
+#       ggsave(str_replace(out_png, 'png', 'pdf'),
+#              width=width, height=height, units='cm')
+#       cat('saved to ', out_png)
+#     }
+# ''')
 
 def create_violin_plots(meth_levels_fp, n_elements,
                         pop_name_abbreviations, pop_order,
@@ -701,14 +729,14 @@ def create_violin_plots(meth_levels_fp, n_elements,
                     coverage_threshold=coverage_threshold_mapping[level_name],
                     max_fraction_lost=max_fraction_lost_due_to_coverage_filtering)
                 .meth_stats
-                .loc[:, idxs[:, :, 'beta']]
+                .loc[:, idxs[:, :, 'beta_value']]
         )
 
         if 0 < n_elements < plot_data.shape[0]:
             plot_data = plot_data.sample(n_elements)
 
         plot_data = (plot_data.stack([0,1,2])
-                     .to_frame('beta')
+                     .to_frame('beta_value')
                      .reset_index()
                      .drop(drop_list, axis=1)
                      )
@@ -719,43 +747,43 @@ def create_violin_plots(meth_levels_fp, n_elements,
                     width=violin_plot_params[plot_width_key],
                     out_png=output_paths[f'violin_{level_name}'])
 
-violin_plot = ro.r('''
-    violin_plot = function(plot_data, level_name, height, width, out_png) {
-      if (level_name == 'pop') {
-        mapping = aes(x = pop, y = beta)
-        width = 4
-      } else {
-        mapping = aes(x = pop, y = beta, fill=rep)
-        width = 8
-      }
-      g = ggplot(plot_data, mapping)
-      if (level_name == 'pop') {
-        g = g + geom_violin(draw_quantiles=c(0.25, 0.5, 0.75),
-                            adjust=1.5, trim=TRUE, fill='gray90',
-                            size=0.2)
-      } else {
-        g = g + geom_violin(draw_quantiles=c(0.25, 0.5, 0.75),
-                            adjust=1.5, trim=TRUE, size=0.2)
-      }
-      g = g + labs(y='Average methylation') +
-              theme_classic(6) +
-              theme(axis.title.x = element_blank(),
-                    legend.key.height = unit(0.2, 'cm'),
-                    legend.key.width = unit(0.2, 'cm'),
-                    legend.margin=margin(0,0,0,0),
-                    legend.box.margin=margin(0,0,0,0),
-                    legend.box.spacing=unit(0.2, 'cm'),
-                    plot.margin=unit(c(0.1,0.1,0.1,0.1), 'cm'))
-      if (level_name == 'rep') {
-        g = g + labs(fill = 'RepID')
-      }
-      if (length(levels(plot_data[['pop']])) > 4) {
-        g = g + theme(axis.text.x = element_text(angle=90, hjust=1, vjust=0.5))
-      }
-      ggsave(out_png, height=height, width=width, units='cm')
-      ggsave(str_replace(out_png, 'png', 'pdf'), height=height, width=width, units='cm')
-    }
-''')
+# violin_plot = ro.r('''
+#     violin_plot = function(plot_data, level_name, height, width, out_png) {
+#       if (level_name == 'pop') {
+#         mapping = aes(x = pop, y = beta)
+#         width = 4
+#       } else {
+#         mapping = aes(x = pop, y = beta, fill=rep)
+#         width = 8
+#       }
+#       g = ggplot(plot_data, mapping)
+#       if (level_name == 'pop') {
+#         g = g + geom_violin(draw_quantiles=c(0.25, 0.5, 0.75),
+#                             adjust=1.5, trim=TRUE, fill='gray90',
+#                             size=0.2)
+#       } else {
+#         g = g + geom_violin(draw_quantiles=c(0.25, 0.5, 0.75),
+#                             adjust=1.5, trim=TRUE, size=0.2)
+#       }
+#       g = g + labs(y='Average methylation') +
+#               theme_classic(6) +
+#               theme(axis.title.x = element_blank(),
+#                     legend.key.height = unit(0.2, 'cm'),
+#                     legend.key.width = unit(0.2, 'cm'),
+#                     legend.margin=margin(0,0,0,0),
+#                     legend.box.margin=margin(0,0,0,0),
+#                     legend.box.spacing=unit(0.2, 'cm'),
+#                     plot.margin=unit(c(0.1,0.1,0.1,0.1), 'cm'))
+#       if (level_name == 'rep') {
+#         g = g + labs(fill = 'RepID')
+#       }
+#       if (length(levels(plot_data[['pop']])) > 4) {
+#         g = g + theme(axis.text.x = element_text(angle=90, hjust=1, vjust=0.5))
+#       }
+#       ggsave(out_png, height=height, width=width, units='cm')
+#       ggsave(str_replace(out_png, 'png', 'pdf'), height=height, width=width, units='cm')
+#     }
+# ''')
 
 
 # From correlation plot
