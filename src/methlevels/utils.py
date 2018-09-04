@@ -1,5 +1,12 @@
+import re
+from io import StringIO
+from textwrap import dedent
+
+import pandas as pd
+from pandas.api.types import CategoricalDtype
+
 # noinspection PyPep8Naming
-def NamedIndexSlice(**kwargs) -> tuple:
+def NamedIndexSlice(**kwargs):
     """Kwargs based index slice: name the index levels and specify the slices
 
     Args:
@@ -47,7 +54,7 @@ def NamedIndexSlice(**kwargs) -> tuple:
 
     return fn
 
-def NamedColumnsSlice(**kwargs) -> tuple:
+def NamedColumnsSlice(**kwargs):
     """Kwargs based index slice: name the index levels and specify the slices
 
     Args:
@@ -96,3 +103,19 @@ def NamedColumnsSlice(**kwargs) -> tuple:
         return tuple(slicing_list)
 
     return fn
+
+
+chrom_dtype_mm10_alphabetic_autosomes = CategoricalDtype(categories=sorted([str(i) for i in range(1, 20)]), ordered=True)
+
+def read_csv_with_padding(s, header=0, index_col=None, **kwargs):
+    s = dedent(re.sub(r' *, +', ',', s))
+    return pd.read_csv(StringIO(s), header=header, index_col=index_col, sep=',', **kwargs)
+
+
+def has_duplicated_coord(self):
+    if self.columns.contains('Chromosome') and self.columns.contains('Start'):
+        return self.duplicated(['Chromosome', 'Start']).any()
+    elif {'Chromosome', 'Start'} <= set(self.index.names):
+        return self.index.to_frame().duplicated(['Chromosome', 'Start']).any()
+    else:
+        raise ValueError('Missing Chromosome or Start information')

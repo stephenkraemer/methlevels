@@ -1,2 +1,4 @@
 **__pycache__/
 src/methlevels.egg-info/
+**.mypy_cache
+**.pytest_cache
