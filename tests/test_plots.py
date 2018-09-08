@@ -40,20 +40,14 @@ def test_region_plot(tmpdir, segmented, custom_region_part_col_name):
     tmpdir = Path(tmpdir)
 
     meth_stats = ml.MethStats(meth_calls_df, anno_df)
-    meth_stats.add_beta_values()
 
-    tidy_anno = (meth_stats.anno
-                 .drop(list(set(meth_stats.anno.index.names) & set(meth_stats.anno.columns)), axis=1)
-                 .reset_index())
-
-    tidy_meth_stats = meth_stats.df.stack(0).reset_index()
-    tidy_meth_stats.columns.name = None
+    tidy_df, tidy_anno = meth_stats.to_tidy_format()
 
     if custom_region_part_col_name:
         tidy_anno = tidy_anno.rename(columns={'region_part': 'custom_region_part'})
-        region_plot = ml.RegionPlot(tidy_meth_stats, tidy_anno, region_part_col='custom_region_part')
+        region_plot = ml.RegionPlot(tidy_df, tidy_anno, region_part_col='custom_region_part')
     else:
-        region_plot = ml.RegionPlot(tidy_meth_stats, tidy_anno)
+        region_plot = ml.RegionPlot(tidy_df, tidy_anno)
 
     fig = region_plot.grid_plot('mpp4',
                                 bp_width_100=8, row_height=1, bp_padding=10)

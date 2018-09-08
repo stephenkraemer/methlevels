@@ -14,6 +14,71 @@ from methlevels.utils import NamedColumnsSlice as ncls
 from methlevels import gr_names
 #-
 
+# TODO: additional region identifier cols are not in the tidy format contracts
+def _assert_tidy_meth_stats_data_contract(df):
+    """
+
+    observation = genomic interval[, additional genomic interval identifier], population[, replicate]
+    variables = beta_value n_meth n_total ...
+    first columns are genomic interval columns, the the population and replicate columns,
+    then variables
+
+    Uses simple RangeIndex. This is generally used for plotting functions,
+    less for data manipulation which is better done on the standard wide-format.
+    For these functions, it is often more convenient to not separate the
+    index variables into a multiindex.
+    """
+    # First three columns are GRange columns, then Subject[, Replicate]
+
+    assert df.columns.name is None
+    assert isinstance(df.index, pd.RangeIndex)
+    assert list(df.columns[0:3]) == gr_names.all
+    assert df.columns.contains('Subject')
+
+    # Sorted by chrom, start, end
+    assert df[gr_names.chrom].is_monotonic
+    assert df[gr_names.start].is_monotonic
+    assert df[gr_names.end].is_monotonic
+    assert all(s in df.columns for s in MethStats.meth_stat_names)
+
+    return True
+
+def _assert_tidy_anno_contract(anno, df):
+    """
+
+    see _assert_tidy_meth_stats_data_contract for description of tidy
+    format
+
+    anno is always aligned with a meth stats df (ie describes the same
+    genomic intervals in the same order). It does not have subject or
+    replicate index variables, because the annotations only depend on the
+    genomic interval. Therefore, meth_stats_df.shape[0] = anno.shape[0] * n_subjects * n_replicates
+    """
+
+    assert anno.columns.name is None
+    columns = anno.columns
+
+    # Index variables are GRange cols, same for all samples,
+    # so no Subject, Replicate info
+    assert list(columns[0:3]) == gr_names.all
+    assert not columns.contains('Subject')
+
+    # Sorted by chrom, start, end - this aligns it with the GRange sorting order
+    # of the meth stats df
+    assert not columns.contains('Replicate')
+    chrom_start_idx = [gr_names.chrom, gr_names.start]
+    a =  df[chrom_start_idx].drop_duplicates().reset_index(drop=True)
+    b = anno[[gr_names.chrom, gr_names.start]]
+    assert a.equals(b)
+
+    # meth stats df has grange info for each sample
+    n_samples = df['Subject'].nunique()
+    if df.columns.contains('Replicate'):
+        n_samples *= df['Replicate'].nunique()
+    assert df.shape[0] == anno.shape[0] * n_samples
+
+
+    return True
 
 
 class MethStats:
@@ -238,6 +303,19 @@ class MethStats:
             anno = anno.sort_index(axis=0)
 
         return cls(meth_stats=meth_stats, anno=anno)
+
+
+    def to_tidy_format(self):
+        tidy_anno = (self.anno
+                     # The wide format anno df may have the same data as index and value column
+                     # -> remove
+                     .drop(list(set(self.anno.index.names) & set(self.anno.columns)), axis=1)
+                     .reset_index())
+        tidy_df = self.df.stack(0).reset_index()
+        tidy_df.columns.name = None
+        _assert_tidy_meth_stats_data_contract(tidy_df)
+        _assert_tidy_anno_contract(tidy_anno, tidy_df)
+        return tidy_df, tidy_anno
 
 
     def add_beta_values(self):

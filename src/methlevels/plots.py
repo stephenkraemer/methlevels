@@ -10,8 +10,10 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 import seaborn as sns
 from dataclasses import dataclass
+from pandas.util.testing import assert_frame_equal
 
 from methlevels import MethStats, gr_names
+from methlevels.methstats import _assert_tidy_meth_stats_data_contract, _assert_tidy_anno_contract
 from methlevels.utils import NamedColumnsSlice as ncls
 
 axes_context_despined = sns.axes_style('whitegrid', rc={
@@ -21,50 +23,11 @@ axes_context_despined = sns.axes_style('whitegrid', rc={
     'axes.spines.top': False,
 })
 
-def _region_plot_meth_data_contract(inst):
-    """ Meth data format
-    tidy format:
-      - observations = interval + population
-      - variables = 'beta_value', 'n_total'
 
-    sorted by chrom, start
-    """
-    assert list(inst.meth_data.columns[0:3]) == gr_names.all
-    print(inst.meth_data.Chromosome)
-    assert inst.meth_data[gr_names.chrom].is_monotonic
-    assert inst.meth_data[gr_names.start].is_monotonic
-    assert inst.meth_data.columns.contains('Subject')
-    assert inst.meth_data.columns.contains('beta_value')
-    assert inst.meth_data.columns.contains('n_total')
-    return True
 
-def _region_plot_anno_contract(inst):
-    """Annotation data format
 
-    Arbitrary annotation columns allowed
-
-    - to draw region boundaries, must contain self.region_part_col
-      (default: 'region_part')
-    """
-    anno = inst.anno
-    if anno is not None:
-        columns = inst.anno.columns
-        assert list(columns[0:3]) == gr_names.all
-        assert inst.meth_data[gr_names.chrom].is_monotonic
-        assert inst.meth_data[gr_names.start].is_monotonic
-    return True
-
-def _region_plot_alignment_contract(inst):
-    if inst.anno is not None:
-        chrom_start_idx = [gr_names.chrom, gr_names.start]
-        a =  inst.meth_data[chrom_start_idx].drop_duplicates().reset_index(drop=True)
-        b = inst.anno[[gr_names.chrom, gr_names.start]]
-        assert a.equals(b)
-    return True
-
-@invariant('meth_data format', _region_plot_meth_data_contract)
-@invariant('anno format', _region_plot_anno_contract)
-@invariant('alignment', _region_plot_alignment_contract)
+@invariant('meth_data format', lambda inst: _assert_tidy_meth_stats_data_contract(inst.meth_data))
+@invariant('anno format', lambda inst: _assert_tidy_anno_contract(inst.anno, inst.meth_data))
 class RegionPlot:
 
     def __init__(self, meth_data: pd.DataFrame, anno: Optional[pd.DataFrame],
