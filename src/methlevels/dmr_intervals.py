@@ -1,36 +1,41 @@
 import pandas as pd
-from pandas.api.types import CategoricalDtype
-from dataclasses import dataclass, field
+import numpy as np
+from dpcontracts import invariant
+from dataclasses import dataclass
 
-from methlevels import MethStats
+from methlevels import MethStats, gr_names
 
+
+def _dmr_intervals_data_contract(self):
+    """DMR Interval data contract
+
+    Additional annotation columns are allowed
+    """
+    assert list(self.df.columns[0:3]) == gr_names.all
+    assert self.df[gr_names.chrom].dtype.name == 'object'
+    assert self.df[gr_names.start].dtype == self.df[gr_names.end].dtype == np.int64
+    assert self.df.columns.contains(self.region_id_col)
+    assert self.df.columns.contains(self.region_part_col)
+    assert isinstance(self.df.index, pd.RangeIndex)
+
+    # sorted by region id, then by chr, start
+    assert self.df[self.region_id_col].is_monotonic
+    assert self.df[gr_names.chrom].is_monotonic
+    assert (self.df.groupby(self.region_id_col)[gr_names.start]
+            .agg(lambda ser: ser.is_monotonic).all())
+    return True
+
+@invariant('correct format', _dmr_intervals_data_contract)
 @dataclass()
 class DMRIntervals:
-    """DMR dataframe and granges with annotations
-
-    index is scalar
-
-    intervals df can have annotation cols, must have index with region id
-
-
-
-    """
+    """DMR dataframe with annotations"""
 
     df: pd.DataFrame
-
-    region_part_dtype: CategoricalDtype = field(
-            default=CategoricalDtype(['left_flank', 'dmr', 'dms1', 'dms2', 'right_flank'], True),
-            init=False,
-            repr=False)
-    coord_dtype: CategoricalDtype = field(
-            default=CategoricalDtype(MethStats.grange_col_names, True),
-            init=False,
-            repr=False)
-
+    region_id_col: str = 'region_id'
+    region_part_col: str = 'region_part'
 
     def __post_init__(self):
-        assert isinstance(self.df.index, pd.Index)
-        assert self.df.index.name == 'region_id'
+        assert list(self.df.columns[0:3]) == MethStats.grange_col_names
 
     def add_flanks(self, n_bp):
         """region id will remain in index, plus region_part
@@ -39,23 +44,24 @@ class DMRIntervals:
         region id and region part also as cols at the end (and alos as index)
         """
 
-        df = self.df
+        def add_flanks(group_df):
+            left_flank_df = group_df.iloc[[0]].copy()
+            left_flank_df['End'] = left_flank_df['Start']
+            left_flank_df['Start'] = left_flank_df['Start'] - n_bp
+            left_flank_df[self.region_part_col] = 'left_flank'
+            right_flank_df = group_df.iloc[[-1]].copy()
+            right_flank_df['Start'] = right_flank_df['End']
+            right_flank_df['End'] = right_flank_df['End'] + n_bp
+            right_flank_df[self.region_part_col] = 'right_flank'
+            return pd.concat([left_flank_df, group_df, right_flank_df], axis=0)
 
-        df_with_flanks = pd.concat((df.assign(Start = df.Start - n_bp, End = df.Start),
-                                 df,
-                                 df.assign(Start = df.End, End = df.End + n_bp),
-                                 ), keys=['left_flank', 'dmr', 'right_flank'], axis=1)
-
-        df_cms = df_with_flanks.columns
-        df_with_flanks.columns = pd.MultiIndex.from_arrays((
-            df_cms.get_level_values(0).astype(self.region_part_dtype),
-            df_cms.get_level_values(1).astype(str)
-        ), names=['region_part', 'coord'])
-
-        df = df_with_flanks.stack(0).loc[:, df.columns]
-        df = pd.concat((df, df.index.to_frame()), axis=1)
-
-        self.df = df
+        self.df = (self.df
+                   .groupby(self.region_id_col, group_keys=False)
+                   .apply(add_flanks)
+                   .reset_index(drop=True)
+                   # .assign(running_idx = lambda df: np.arange(df.shape[0]))
+                   # .set_index([self.region_id_col, 'running_idx'], drop=False, append=False)
+                   # .drop('running_idx', axis=1)
+                   )
 
         return self
-

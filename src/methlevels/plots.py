@@ -1,5 +1,7 @@
 from typing import Optional
 
+from dpcontracts import invariant
+
 import pandas as pd
 
 import matplotlib as mpl
@@ -9,7 +11,7 @@ from matplotlib.axes import Axes
 import seaborn as sns
 from dataclasses import dataclass
 
-from methlevels import MethStats
+from methlevels import MethStats, gr_names
 from methlevels.utils import NamedColumnsSlice as ncls
 
 axes_context_despined = sns.axes_style('whitegrid', rc={
@@ -19,64 +21,116 @@ axes_context_despined = sns.axes_style('whitegrid', rc={
     'axes.spines.top': False,
 })
 
+def _region_plot_meth_data_contract(inst):
+    """ Meth data format
+    tidy format:
+      - observations = interval + population
+      - variables = 'beta_value', 'n_total'
 
+    sorted by chrom, start
+    """
+    assert list(inst.meth_data.columns[0:3]) == gr_names.all
+    print(inst.meth_data.Chromosome)
+    assert inst.meth_data[gr_names.chrom].is_monotonic
+    assert inst.meth_data[gr_names.start].is_monotonic
+    assert inst.meth_data.columns.contains('Subject')
+    assert inst.meth_data.columns.contains('beta_value')
+    assert inst.meth_data.columns.contains('n_total')
+    return True
+
+def _region_plot_anno_contract(inst):
+    """Annotation data format
+
+    Arbitrary annotation columns allowed
+
+    - to draw region boundaries, must contain self.region_part_col
+      (default: 'region_part')
+    """
+    anno = inst.anno
+    if anno is not None:
+        columns = inst.anno.columns
+        assert list(columns[0:3]) == gr_names.all
+        assert inst.meth_data[gr_names.chrom].is_monotonic
+        assert inst.meth_data[gr_names.start].is_monotonic
+    return True
+
+def _region_plot_alignment_contract(inst):
+    if inst.anno is not None:
+        chrom_start_idx = [gr_names.chrom, gr_names.start]
+        a =  inst.meth_data[chrom_start_idx].drop_duplicates().reset_index(drop=True)
+        b = inst.anno[[gr_names.chrom, gr_names.start]]
+        assert a.equals(b)
+    return True
+
+@invariant('meth_data format', _region_plot_meth_data_contract)
+@invariant('anno format', _region_plot_anno_contract)
+@invariant('alignment', _region_plot_alignment_contract)
 class RegionPlot:
 
-
-    def __init__(self, df: pd.DataFrame, anno: Optional[pd.DataFrame]):
-        assert df.index.names[0:3] == ['Chromosome', 'Start', 'End']
-        assert anno.index.names[0:3] == ['Chromosome', 'Start', 'End']
-        assert df.index.is_lexsorted()
-        self.df = df.stack(0).reset_index()
-        if anno is not None:
-            assert anno.index.is_lexsorted()
-            self.anno = (anno
-                         .drop(list(set(anno.index.names) & set(anno.columns)), axis=1)
-                         .reset_index())
-        else:
-            self.anno = None
-        subject_categories = list(self.df.Subject.cat.categories)
+    def __init__(self, meth_data: pd.DataFrame, anno: Optional[pd.DataFrame],
+                 region_part_col: str = 'region_part') -> None:
+        self.meth_data = meth_data
+        self.anno = anno
+        subject_categories = list(self.meth_data.Subject.cat.categories)
         self.subject_y = pd.Series(dict(zip(subject_categories,
                                             range(len(subject_categories)))))
+        self.region_part_col = region_part_col
+        # assert list(meth_data.index.names[0:3]) == gr_names
+        # assert meth_data.index.is_lexsorted()
+        # self.meth_data = meth_data.stack(0).reset_index()
+
+        # if anno is not None:
+            # assert anno.index.names[0:3] == ['Chromosome', 'Start', 'End']
+            # assert anno.index.is_lexsorted()
+            # self.anno = (anno
+            #              .drop(list(set(anno.index.names) & set(anno.columns)), axis=1)
+            #              .reset_index())
+        # else:
+        #     self.anno = None
 
 
     def __str__(self):
-        return str({'df': str(self.df),
+        return str({'df': str(self.meth_data),
                     'anno': str(self.anno)})
 
 
-    def grid_plot(self, title, highlighted_subjects=None, row_height=0.4/2.54, bp_width_100 = 1 / 2.54, bp_padding=100,
+    def grid_plot(self, title, draw_region_boundaries=True,
+                  highlighted_subjects=None, row_height=0.4/2.54,
+                  bp_width_100 = 1 / 2.54, bp_padding=100,
                   dpi=180):
 
+        if draw_region_boundaries:
+            assert self.anno.columns.contains(self.region_part_col)
 
-        figsize = (bp_width_100 * (self.df['Start'].iloc[-1] - self.df['Start'].iloc[0]) / 100,
-                   self.df['Subject'].nunique( ) * row_height)
+        figsize = (bp_width_100 * (self.meth_data['Start'].iloc[-1] - self.meth_data['Start'].iloc[0]) / 100,
+                   self.meth_data['Subject'].nunique() * row_height)
 
         with axes_context_despined, mpl.rc_context({'axes.grid.axis': 'y'}):
             fig, ax = plt.subplots(1, 1, constrained_layout=True, figsize=figsize, dpi=180)
             ax: Axes
 
-            xlim = (self.df.iloc[0]['Start'] - bp_padding, self.df.iloc[-1]['Start'] + bp_padding)
+            xlim = (self.meth_data.iloc[0]['Start'] - bp_padding, self.meth_data.iloc[-1]['Start'] + bp_padding)
 
             ax.set(xlim=xlim)
             ax.set_title(title)
 
-            if 'region_part' in self.anno.columns:
-                curr_region_part = self.anno['region_part'].iloc[0]
+            sc = ax.scatter(self.meth_data['Start'] + 0.5, self.meth_data['Subject'], c=self.meth_data['beta_value'],
+                            marker='.', edgecolor='black', linewidth=0.5, s=50,
+                            cmap='YlOrBr', vmin=0, vmax=1,
+                            zorder=10)
+
+            if draw_region_boundaries:
+                curr_region_part = self.anno[self.region_part_col].iloc[0]
                 curr_start = self.anno['Start'].iloc[0]
                 last_boundary = 0
                 for unused_idx, curr_anno_row_ser in self.anno.iterrows():
-                    if curr_anno_row_ser['region_part'] != curr_region_part:
+                    if curr_anno_row_ser[self.region_part_col] != curr_region_part:
                         vline_x = curr_start + 0.5 + (curr_anno_row_ser['Start'] - curr_start) / 2
                         ax.axvline(vline_x, color='gray', linewidth=0.5, linestyle='--')
-                        curr_region_part = curr_anno_row_ser['region_part']
+                        curr_region_part = curr_anno_row_ser[self.region_part_col]
                     curr_start = curr_anno_row_ser['Start']
-                        # curr_start = ser['Start']
+                    # curr_start = ser['Start']
 
-            sc = ax.scatter(self.df['Start'] + 0.5, self.df['Subject'], c=self.df['beta_value'],
-                            marker='.',  edgecolor='black', linewidth=0.5, s=50,
-                            cmap='YlOrBr', vmin=0, vmax=1,
-                            zorder=10)
 
             if highlighted_subjects is not None:
                 ax.barh(self.subject_y[highlighted_subjects], xlim[1], 0.8,
