@@ -141,6 +141,10 @@ def test_convert_to_populations(flat_meth_stats, with_anno_cols):
         flat_meth_stats['size'] = 3
     pop_level_meth_stats = MethStats.from_flat_dataframe(flat_meth_stats).convert_to_populations()
     assert pop_level_meth_stats.df.loc[('1', 3, 4), ('hsc', 'n_meth')] == 25
+    dtypes=pop_level_meth_stats.df.dtypes
+    assert dtypes.loc[nidxs(Stat='beta_value')].eq(np.float).all()
+    assert dtypes.loc[nidxs(Stat='n_meth')].eq(np.int).all()
+    assert dtypes.loc[nidxs(Stat='n_total')].eq(np.int).all()
     if with_anno_cols:
         assert pop_level_meth_stats.anno['size'].eq(3).all()
 

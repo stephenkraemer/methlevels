@@ -507,6 +507,9 @@ class MethStats:
             return group_df
         pop_stats_df = pop_stats_df.groupby(level='Subject', axis=1).apply(update_beta_values)
 
+        pop_stats_df.loc[:, ncls(Stat='n_meth')] = pop_stats_df.loc[:, ncls(Stat='n_meth')].astype(np.int64)
+        pop_stats_df.loc[:, ncls(Stat='n_total')] = pop_stats_df.loc[:, ncls(Stat='n_total')].astype(np.int64)
+
         if self._anno is None:
             anno_copy = None
         else:
