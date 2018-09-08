@@ -37,6 +37,23 @@ def flat_meth_stats_subject_level():
         'mpp1_beta_value': [.5, .5, .5],
     })
 
+def test_anno_contract(flat_meth_stats):
+    meth_stats = MethStats.from_flat_dataframe(flat_meth_stats)
+    with pytest.raises(AssertionError):
+        meth_stats.anno = pd.DataFrame([1, 2])
+
+    with pytest.raises(AssertionError):
+        meth_stats = MethStats.from_flat_dataframe(flat_meth_stats)
+        MethStats(meth_stats=meth_stats.df, anno=pd.DataFrame([1, 2]))
+
+def test_df_contract(flat_meth_stats):
+    flat_meth_stats_duplicates = pd.concat([flat_meth_stats, flat_meth_stats])
+    with pytest.raises(AssertionError):
+        meth_stats = MethStats.from_flat_dataframe(flat_meth_stats_duplicates)
+    with pytest.raises(AssertionError):
+        MethStats(pd.concat([MethStats.from_flat_dataframe(flat_meth_stats).df,
+                             MethStats.from_flat_dataframe(flat_meth_stats).df]))
+
 
 @pytest.mark.parametrize('with_anno_cols', [True, False])
 def test_initializes_from_flat_df(with_anno_cols, flat_meth_stats):
@@ -52,6 +69,7 @@ def test_initializes_from_flat_df(with_anno_cols, flat_meth_stats):
 
     if with_anno_cols:
         assert meth_stats.anno['size'].eq([10, 12, 14]).all()
+
 
 def test_initializes_from_flat_df_subject_level(flat_meth_stats_subject_level):
     meth_stats = MethStats.from_flat_dataframe(flat_meth_stats_subject_level)

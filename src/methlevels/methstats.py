@@ -11,6 +11,7 @@ import pandas as pd
 from pandas import IndexSlice as idxs
 
 from methlevels.utils import NamedColumnsSlice as ncls
+from methlevels import gr_names
 #-
 
 
@@ -43,6 +44,51 @@ class MethStats:
     _all_column_names = ['Subject', 'Replicate', 'Stat']
     meth_stat_names = ['n_meth', 'n_total', 'beta_value']
 
+    """Note on contract enforcement
+    
+    All methods either return a new instance (almost always the case)
+    or update df / anno in place through the properties. By calling
+    the contract assertions at the end of the constructor function and
+    at the end of the property setters, the contract should be reliably
+    enforced
+    """
+
+    def _assert_meth_stats_data_contract(self):
+        index = self.df.index
+        assert index.names[0:3] == gr_names.all
+        # Index may not have duplicates
+        # if GRanges contain duplicates, an additional index level must
+        # be used, e.g. specifying a region ID
+        assert not index.duplicated().any()
+        # Chromosome must be categorical and string
+        assert index.get_level_values(0).dtype.name == 'category'
+        assert isinstance(index.get_level_values(0).categories[0], str)
+        # Start and end are int
+        assert index.get_level_values(1).dtype == index.get_level_values(2).dtype == np.int64
+        assert index.is_lexsorted()
+
+        columns = self.df.columns
+        # May have 2 or 3 levels: subject or replicate level resolution
+        assert (columns.names == MethStats._all_column_names
+                or columns.names == [MethStats._all_column_names[i] for i in [0, 2]])
+        # Subject is categorical (for sorting, plotting...)
+        assert columns.get_level_values(0).dtype.name == 'category'
+        assert columns.get_level_values('Stat').dtype.name == 'object'
+        # Stat must contain beta_value, n_meth, n_total, may contain other columns
+        assert {'beta_value', 'n_meth', 'n_total'} <= set(columns.levels[-1])
+        assert columns.is_lexsorted()
+
+    def _assert_anno_contract(self):
+        """Annotation dataframe
+
+        - aligned with meth stats df
+        - arbitrary annotation columns allowed
+        - flat column index
+        """
+        if self.anno is not None:
+            assert self.anno.index.equals(self.df.index)
+            assert not isinstance(self.anno.columns, pd.MultiIndex)
+
 
     def __init__(self, meth_stats: pd.DataFrame, anno: Optional[pd.DataFrame] = None,
                  chromosome_order: Optional[List[str]] = None,
@@ -65,6 +111,10 @@ class MethStats:
 
         self._process_hierarchical_dataframe()
 
+        self._assert_meth_stats_data_contract()
+        self._assert_anno_contract()
+
+
     @property
     def df(self) -> pd.DataFrame:
         return self._meth_stats
@@ -76,6 +126,8 @@ class MethStats:
         if self._anno is not None:
             assert not self._meth_stats.index.duplicated().any()
             self._anno = self._anno.loc[data.index]
+        self._assert_meth_stats_data_contract()
+        self._assert_anno_contract()
 
 
     @property
@@ -88,6 +140,8 @@ class MethStats:
         assert not anno.index.duplicated().any()
         self._anno = anno
         self._meth_stats = self._meth_stats.loc[anno.index, :]
+        self._assert_meth_stats_data_contract()
+        self._assert_anno_contract()
 
 
     @classmethod
@@ -213,8 +267,10 @@ class MethStats:
         else:
             # pandas 0.23 does not allow new columns in axis=1 free groupby-apply
             # noinspection PyAttributeOutsideInit
-            self.df = pd.concat([add_beta_values(group_df)
-                                 for name, group_df in self.df.groupby(level=group_cols, axis=1)], axis=1)
+            new_df = pd.concat([add_beta_values(group_df)
+                                for name, group_df in self.df.groupby(level=group_cols, axis=1)], axis=1)
+            new_df.sort_index(axis=1, inplace=True)
+            self.df = new_df
 
 
     def update(self, df: Optional[Union[pd.DataFrame, Callable]] = None,
@@ -315,13 +371,16 @@ class MethStats:
                     names=names)
             df.columns = col_midx
 
-        if not df.index.is_lexsorted():
-            df.sort_index(inplace=True, axis=0)
-        if not df.columns.is_lexsorted():
-            df.sort_index(inplace=True, axis=1)
 
         self._meth_stats = df
 
+        if not self._meth_stats.columns.levels[-1].contains('beta_value'):
+            self.add_beta_values()
+
+        if not self._meth_stats.index.is_lexsorted():
+            self._meth_stats.sort_index(inplace=True, axis=0)
+        if not self._meth_stats.columns.is_lexsorted():
+            self._meth_stats.sort_index(inplace=True, axis=1)
 
     def apply_coverage_limit(self, threshold: int):
         has_enough_coverage = (self._meth_stats.loc[:, idxs[:, :, 'n_total']] >= threshold).all(axis=1)
