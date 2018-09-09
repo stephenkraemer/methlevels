@@ -26,18 +26,17 @@ def _dmr_intervals_data_contract(self):
     return True
 
 @invariant('correct format', _dmr_intervals_data_contract)
-@dataclass()
 class DMRIntervals:
     """DMR dataframe with annotations"""
 
-    df: pd.DataFrame
-    region_id_col: str = 'region_id'
-    region_part_col: str = 'region_part'
+    def __init__(self, df: pd.DataFrame,
+                 region_id_col: str = 'region_id',
+                 region_part_col: str = 'region_part') -> None:
+        self.df = df
+        self.region_id_col = region_id_col
+        self.region_part_col = region_part_col
 
-    def __post_init__(self):
-        assert list(self.df.columns[0:3]) == MethStats.grange_col_names
-
-    def add_flanks(self, n_bp):
+    def add_flanks(self, n_bp: int):
         """region id will remain in index, plus region_part
 
         anno cols after coord cols
@@ -47,11 +46,11 @@ class DMRIntervals:
         def add_flanks(group_df):
             left_flank_df = group_df.iloc[[0]].copy()
             left_flank_df['End'] = left_flank_df['Start']
-            left_flank_df['Start'] = left_flank_df['Start'] - n_bp
+            left_flank_df['Start'] -= n_bp
             left_flank_df[self.region_part_col] = 'left_flank'
             right_flank_df = group_df.iloc[[-1]].copy()
             right_flank_df['Start'] = right_flank_df['End']
-            right_flank_df['End'] = right_flank_df['End'] + n_bp
+            right_flank_df['End'] += n_bp
             right_flank_df[self.region_part_col] = 'right_flank'
             return pd.concat([left_flank_df, group_df, right_flank_df], axis=0)
 

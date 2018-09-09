@@ -1,7 +1,6 @@
 print('reloaded')
 #-
 import tempfile
-from dataclasses import dataclass, field
 from io import StringIO
 from itertools import chain
 from joblib import Parallel, delayed
@@ -10,7 +9,6 @@ from pathlib import Path
 from subprocess import run, PIPE
 from typing import List, Optional
 
-import numpy as np
 import pandas as pd
 idxs = pd.IndexSlice
 import pyranges as pr
@@ -40,7 +38,6 @@ def _run_tabix_agg(bed_path, intervals_bed_fp, groupby_seq, bed_calls, int_index
 
 #-
 
-@dataclass()
 class BedCalls:
     """Interface to a set of methylation calls in BED format
 
@@ -83,18 +80,20 @@ class BedCalls:
 
     """
 
-    metadata_table: pd.DataFrame
-    tmpdir: Path
-    pop_order: List[str]
-    beta_value_col: int = 6
-    n_meth_col: int = 7
-    n_total_col: int = 8
-
     grange_col_names = 'Chromosome Start End'.split()
     stat_col_dtypes = {'beta_value': 'f8', 'n_meth': 'i8', 'n_total': 'i8'}
     stat_col_order_output = 'beta_value n_meth n_total'.split()
 
-    def __post_init__(self):
+    def __init__(self, metadata_table: pd.DataFrame, tmpdir: str,
+                 pop_order: List[str], beta_value_col: int,
+                 n_meth_col: int, n_total_col: int) -> None:
+        self.metadata_table = metadata_table
+        self.tmpdir = tmpdir
+        self.pop_order = pop_order
+        self.beta_value_col = beta_value_col
+        self.n_meth_col = n_meth_col
+        self.n_total_col = n_total_col
+
         self.stat_col_index_input = [self.beta_value_col, self.n_meth_col, self.n_total_col]
         self.stat_col_order_input = [t[0] for t in sorted(
                 zip(self.stat_col_order_output, self.stat_col_index_input), key=lambda t: t[1])]
