@@ -11,6 +11,7 @@ import pandas as pd
 from pandas import IndexSlice as idxs
 
 from methlevels.utils import NamedColumnsSlice as ncls
+from methlevels.utils import NamedIndexSlice as nidxs
 from methlevels import gr_names
 #-
 
@@ -33,6 +34,9 @@ def _assert_tidy_meth_stats_data_contract(df):
     assert df.columns.name is None
     assert isinstance(df.index, pd.RangeIndex)
     assert list(df.columns[0:3]) == gr_names.all
+    assert df[gr_names.chrom].dtype.name == 'category'
+    assert isinstance(df[gr_names.chrom].iloc[0], str)
+    assert df[gr_names.start].dtype ==  df[gr_names.end].dtype == np.int64
     assert df.columns.contains('Subject')
 
     # Sorted by chrom, start, end
@@ -72,9 +76,10 @@ def _assert_tidy_anno_contract(anno, df):
     assert a.equals(b)
 
     # meth stats df has grange info for each sample
-    n_samples = df['Subject'].nunique()
     if df.columns.contains('Replicate'):
-        n_samples *= df['Replicate'].nunique()
+        n_samples = df[['Subject', 'Replicate']].drop_duplicates().shape[0]
+    else:
+        n_samples = df['Subject'].nunique()
     assert df.shape[0] == anno.shape[0] * n_samples
 
 
@@ -141,6 +146,9 @@ class MethStats:
         assert columns.get_level_values('Stat').dtype.name == 'object'
         # Stat must contain beta_value, n_meth, n_total, may contain other columns
         assert {'beta_value', 'n_meth', 'n_total'} <= set(columns.levels[-1])
+        assert self.df.dtypes.loc[nidxs(Stat='beta_value')].eq(np.float).all()
+        assert self.df.dtypes.loc[nidxs(Stat='n_meth')].eq(np.int).all()
+        assert self.df.dtypes.loc[nidxs(Stat='n_total')].eq(np.int).all()
         assert columns.is_lexsorted()
 
     def _assert_anno_contract(self):
@@ -215,6 +223,13 @@ class MethStats:
                             additional_index_cols: List[str] = None,
                             drop_additional_index_cols: bool = True):
         """expects integer index and columns
+        
+        Args:
+            additional_index_cols: columns to be added to the index 
+                (append to GRange index cols). Must be provided if the
+                GRange index is non-unique.
+            drop_additional_index_cols: wether to remove index columns
+            from the value columns when they are set as index level
 
         may contain anno cols
 
@@ -306,15 +321,19 @@ class MethStats:
 
 
     def to_tidy_format(self):
-        tidy_anno = (self.anno
-                     # The wide format anno df may have the same data as index and value column
-                     # -> remove
-                     .drop(list(set(self.anno.index.names) & set(self.anno.columns)), axis=1)
-                     .reset_index())
-        tidy_df = self.df.stack(0).reset_index()
+        if self.anno is not None:
+            tidy_anno = (self.anno
+                         # The wide format anno df may have the same data as index and value column
+                         # -> remove
+                         .drop(list(set(self.anno.index.names) & set(self.anno.columns)), axis=1)
+                         .reset_index())
+        else:
+            tidy_anno = None
+        tidy_df = self.df.stack(self.df.columns.names[0:-1]).reset_index()
         tidy_df.columns.name = None
         _assert_tidy_meth_stats_data_contract(tidy_df)
-        _assert_tidy_anno_contract(tidy_anno, tidy_df)
+        if self.anno is not None:
+            _assert_tidy_anno_contract(tidy_anno, tidy_df)
         return tidy_df, tidy_anno
 
 

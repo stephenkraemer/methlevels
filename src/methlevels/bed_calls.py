@@ -153,12 +153,21 @@ class BedCalls:
                   additional_index_cols: Optional[List[str]] = None,
                   drop_additional_index_cols=True, parallel=None) -> MethStats:
         """Retrieve individual motifs, annotated with their parent interval
+        
+        Args:
+            additional_index_cols: passed on the MethStats.from_flat_dataframe
+            drop_additional_index_cols: passed on the MethStats.from_flat_dataframe
 
         Optionally, annotation columns may be added to the intervals df.
         They will be added to the results (available through anno df of
         the returned MethStats object).
 
-        seqnames are taken from interval df, with order
+        Chromosome categories are taken from interval df, with order
+
+        If the interval df contains duplicate genomic intervals, it must contain
+        one or more additional index variables, so that the complete index
+        if fully unique. These additional index variables must be distinguished
+        from annotation variables by passing them via /additional_index_cols/
 
         """
 

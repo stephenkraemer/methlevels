@@ -1,10 +1,13 @@
 from copy import deepcopy
+import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
+from pandas.api.types import CategoricalDtype
 import pytest
 
 from methlevels import MethStats
 from methlevels.utils import read_csv_with_padding
+from methlevels.utils import NamedIndexSlice as nidxs
 
 @pytest.fixture()
 def flat_meth_stats():
@@ -270,3 +273,56 @@ def test_additional_index_column(flat_meth_stats):
     #
     # assert_frame_equal(meth_stats.df, meth_stats_expected_no_drop.df, check_names=False)
     # assert_frame_equal(meth_stats.anno, meth_stats_expected_no_drop.anno, check_names=False)
+
+
+@pytest.mark.parametrize('level', ['Subject', 'Replicate'])
+@pytest.mark.parametrize('with_anno', [True, False])
+def test_to_tidy_format(flat_meth_stats, level, with_anno):
+    if with_anno:
+        flat_meth_stats['anno'] = list('abc')
+    meth_stats = MethStats.from_flat_dataframe(flat_meth_stats)
+    if level == 'Subject':
+        meth_stats = meth_stats.convert_to_populations()
+    tidy_df, tidy_anno = meth_stats.to_tidy_format()
+
+    dtypes_d = {'Chromosome': CategoricalDtype(['1', '2'], ordered=True),
+                'Subject': CategoricalDtype(['hsc', 'mpp1'], ordered=True),
+                'Replicate': str}
+
+    expected_tidy_anno = read_csv_with_padding("""\
+        Chromosome , Start , End , anno
+        1          , 1     , 2   , a
+        1          , 3     , 4   , b
+        2          , 5     , 6   , c
+        """, dtype=dtypes_d)
+
+    if level == 'Subject':
+        expected_tidy_df = read_csv_with_padding("""\
+            Chromosome,Start,End,Subject,beta_value,n_meth,n_total
+            1,1,2,hsc,1,20,20
+            1,1,2,mpp1,1,10,10
+            1,3,4,hsc,1.25,25,20
+            1,3,4,mpp1,1,10,10
+            2,5,6,hsc,1,20,20
+            2,5,6,mpp1,1,10,10
+            """, dtype=dtypes_d)
+    else:
+        expected_tidy_df = read_csv_with_padding("""\
+            Chromosome , Start , End , Subject , Replicate , beta_value , n_meth , n_total
+            1          , 1     , 2   , hsc     , 1         , 0.5        , 10.0   , 10.0
+            1          , 1     , 2   , hsc     , 2         , 0.5        , 10.0   , 10.0
+            1          , 1     , 2   , mpp1    , 1         , 0.5        , 10.0   , 10.0
+            1          , 3     , 4   , hsc     , 1         , 0.5        , 10.0   , 10.0
+            1          , 3     , 4   , hsc     , 2         , 0.5        , 15.0   , 10.0
+            1          , 3     , 4   , mpp1    , 1         , 0.5        , 10.0   , 10.0
+            2          , 5     , 6   , hsc     , 1         , 0.5        , 10.0   , 10.0
+            2          , 5     , 6   , hsc     , 2         , 0.5        , 10.0   , 10.0
+            2          , 5     , 6   , mpp1    , 1         , 0.5        , 10.0   , 10.0
+            """, dtype=dtypes_d)
+
+    assert_frame_equal(tidy_df, expected_tidy_df)
+    if with_anno:
+        assert_frame_equal(tidy_anno, expected_tidy_anno)
+    else:
+        assert tidy_anno is None
+
