@@ -45,9 +45,9 @@ def test_region_plot(tmpdir, segmented, custom_region_part_col_name):
 
     if custom_region_part_col_name:
         tidy_anno = tidy_anno.rename(columns={'region_part': 'custom_region_part'})
-        region_plot = ml.RegionPlot(tidy_df, tidy_anno, region_part_col='custom_region_part')
+        region_plot = ml.DMRPlot(tidy_df, tidy_anno, region_part_col='custom_region_part')
     else:
-        region_plot = ml.RegionPlot(tidy_df, tidy_anno)
+        region_plot = ml.DMRPlot(tidy_df, tidy_anno)
 
     fig = region_plot.grid_plot('mpp4',
                                 bp_width_100=8, row_height=1, bp_padding=10)

@@ -14,5 +14,5 @@ gr_dtypes_d = dict(
 
 from .methstats import MethStats
 from .bed_calls import BedCalls
-from .plots import RegionPlot
+from .plots import DMRPlot
 from .dmr_intervals import DMRIntervals

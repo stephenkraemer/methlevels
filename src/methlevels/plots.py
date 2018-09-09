@@ -28,7 +28,7 @@ axes_context_despined = sns.axes_style('whitegrid', rc={
 
 @invariant('meth_data format', lambda inst: _assert_tidy_meth_stats_data_contract(inst.meth_data))
 @invariant('anno format', lambda inst: _assert_tidy_anno_contract(inst.anno, inst.meth_data))
-class RegionPlot:
+class DMRPlot:
 
     def __init__(self, meth_data: pd.DataFrame, anno: Optional[pd.DataFrame],
                  region_part_col: str = 'region_part') -> None:
