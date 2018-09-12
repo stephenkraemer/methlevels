@@ -3,6 +3,7 @@ print('reloaded')
 import tempfile
 from io import StringIO
 from itertools import chain
+import joblib
 from joblib import Parallel, delayed
 from methlevels import MethStats
 from pathlib import Path
@@ -148,12 +149,13 @@ class BedCalls:
         return meth_stats
 
 
-    def intersect(self, intervals_df: pd.DataFrame, n_cores: int,
+    def intersect(self, intervals_df: pd.DataFrame, n_cores: int = None,
                   additional_index_cols: Optional[List[str]] = None,
-                  drop_additional_index_cols=True, parallel=None) -> MethStats:
+                  drop_additional_index_cols=True, parallel: joblib.Parallel = None) -> MethStats:
         """Retrieve individual motifs, annotated with their parent interval
         
         Args:
+            n_cores: ignored if parallel is specified
             additional_index_cols: passed on the MethStats.from_flat_dataframe
             drop_additional_index_cols: passed on the MethStats.from_flat_dataframe
 

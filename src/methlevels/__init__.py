@@ -12,6 +12,16 @@ gr_dtypes_d = dict(
         Chromosome = str
 )
 
+def assert_gr_index_contract(index):
+    assert index.is_lexsorted()
+    assert index.names[0:3] == gr_names.all
+    assert index.get_level_values('Chromosome').dtype.name == 'category'
+    assert isinstance(index.get_level_values('Chromosome').categories[0], str)
+    assert (index.get_level_values('Start').dtype
+            == index.get_level_values('End').dtype
+            == np.int)
+    return True
+
 from .methstats import MethStats
 from .bed_calls import BedCalls
 from .plots import DMRPlot

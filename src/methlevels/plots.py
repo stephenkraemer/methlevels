@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 import seaborn as sns
 from dataclasses import dataclass
+from matplotlib.figure import Figure
 from pandas.util.testing import assert_frame_equal
 
 from methlevels import MethStats, gr_names
@@ -60,7 +61,7 @@ class DMRPlot:
     def grid_plot(self, title, draw_region_boundaries=True,
                   highlighted_subjects=None, row_height=0.4/2.54,
                   bp_width_100 = 1 / 2.54, bp_padding=100,
-                  dpi=180):
+                  dpi=180) -> Figure:
 
         if draw_region_boundaries:
             assert self.anno.columns.contains(self.region_part_col)

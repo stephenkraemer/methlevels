@@ -492,7 +492,7 @@ class MethStats:
             self, coverage_threshold, max_fraction_lost):
 
 
-        coverage_stats = self._meth_stats.loc[:, ncls(stat='n_total')]
+        coverage_stats = self._meth_stats.loc[:, ncls(Stat='n_total')]
         per_sample_quantiles = coverage_stats.quantile(max_fraction_lost, axis=0)
         per_sample_thresholds = (per_sample_quantiles
                                  .where(per_sample_quantiles < coverage_threshold,
@@ -584,7 +584,7 @@ class MethStats:
 
         if min_delta:
 
-            betas = meth_in_regions._meth_stats.loc[:, ncls(stat='beta_value')]
+            betas = meth_in_regions._meth_stats.loc[:, ncls(Stat='beta_value')]
 
             abs_deltas = betas.max(axis=1) - betas.min(axis=1)
             has_sufficient_delta = abs_deltas > min_delta
@@ -599,12 +599,12 @@ class MethStats:
     def get_flat_columns(self):
         return ['_'.join(x) for x in self._meth_stats.columns]
 
-    def save(self, filepaths, pop_name_abbreviations=None):
-        multi_idx = self._meth_stats.columns
-        if pop_name_abbreviations:
-            reverse_abbreviation_mapping = {v:k for k,v in pop_name_abbreviations.items()}
-            self._meth_stats = self._meth_stats.rename(reverse_abbreviation_mapping,
-                                                       axis=1, level=0)
+    def save_flat(self, filepaths):
+        """save as flat dataframe, prepend the anno columns"""
+
+        # will be restored at the end
+        orig_multi_idx = self._meth_stats.columns
+
         self._meth_stats.columns = self.get_flat_columns()
         res = pd.concat([self._anno, self._meth_stats], axis=1).reset_index()
         for fp in filepaths:
@@ -616,7 +616,8 @@ class MethStats:
                 res.to_pickle(fp)
             else:
                 ValueError(f'Unknown suffix for {fp}, abort saving')
-        self._meth_stats.columns = multi_idx
+
+        self._meth_stats.columns = orig_multi_idx
 
 
 
