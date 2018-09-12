@@ -1,20 +1,14 @@
-from typing import Optional
-
-from dpcontracts import invariant
-
-import pandas as pd
-
 import matplotlib as mpl
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
+import pandas as pd
 import seaborn as sns
-from dataclasses import dataclass
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from pandas.util.testing import assert_frame_equal
+from packaging.markers import Op
+from typing import Optional, List
 
-from methlevels import MethStats, gr_names
-from methlevels.methstats import _assert_tidy_meth_stats_data_contract, _assert_tidy_anno_contract
+from methlevels import MethStats
 from methlevels.utils import NamedColumnsSlice as ncls
 
 axes_context_despined = sns.axes_style('whitegrid', rc={
@@ -25,85 +19,92 @@ axes_context_despined = sns.axes_style('whitegrid', rc={
 })
 
 
-
-
-@invariant('meth_data format', lambda inst: _assert_tidy_meth_stats_data_contract(inst.meth_data))
-@invariant('anno format', lambda inst: _assert_tidy_anno_contract(inst.anno, inst.meth_data))
 class DMRPlot:
 
-    def __init__(self, meth_data: pd.DataFrame, anno: Optional[pd.DataFrame],
+
+    def __init__(self, meth_stats: MethStats,
+                 region_id_col: str = 'region_id',
                  region_part_col: str = 'region_part') -> None:
-        self.meth_data = meth_data
-        self.anno = anno
-        subject_categories = list(self.meth_data.Subject.cat.categories)
+        self.meth_stats = meth_stats
+        subject_categories = list(self.meth_stats.df.columns
+                                  .get_level_values('Subject').categories)
         self.subject_y = pd.Series(dict(zip(subject_categories,
                                             range(len(subject_categories)))))
         self.region_part_col = region_part_col
-        # assert list(meth_data.index.names[0:3]) == gr_names
-        # assert meth_data.index.is_lexsorted()
-        # self.meth_data = meth_data.stack(0).reset_index()
-
-        # if anno is not None:
-            # assert anno.index.names[0:3] == ['Chromosome', 'Start', 'End']
-            # assert anno.index.is_lexsorted()
-            # self.anno = (anno
-            #              .drop(list(set(anno.index.names) & set(anno.columns)), axis=1)
-            #              .reset_index())
-        # else:
-        #     self.anno = None
+        self.region_id_col = region_id_col
 
 
     def __str__(self):
-        return str({'df': str(self.meth_data),
-                    'anno': str(self.anno)})
+        return str({'df': str(self.meth_stats.df),
+                    'anno': str(self.meth_stats.anno)})
 
 
-    def grid_plot(self, title, draw_region_boundaries=True,
+    def grid_plot(self, output_dir, label, n_surrounding=5, draw_region_boundaries=True,
+                  filetypes: Optional[List[str]] = None,
                   highlighted_subjects=None, row_height=0.4/2.54,
                   bp_width_100 = 1 / 2.54, bp_padding=100,
-                  dpi=180) -> Figure:
+                  dpi=180) -> None:
+
+        if filetypes is None:
+            filetypes = ['png']
 
         if draw_region_boundaries:
-            assert self.anno.columns.contains(self.region_part_col)
+            assert self.meth_stats.anno.columns.contains(self.region_part_col)
 
-        figsize = (bp_width_100 * (self.meth_data['Start'].iloc[-1] - self.meth_data['Start'].iloc[0]) / 100,
-                   self.meth_data['Subject'].nunique() * row_height)
+        for region_id, anno_group in self.meth_stats.anno.groupby(self.region_id_col):
 
-        with axes_context_despined, mpl.rc_context({'axes.grid.axis': 'y'}):
-            fig, ax = plt.subplots(1, 1, constrained_layout=True, figsize=figsize, dpi=180)
-            ax: Axes
+            is_dmr = ~anno_group[self.region_part_col].isin(['left_flank', 'right_flank'])
+            dmr_start = is_dmr.values.argmax()
+            dmr_end = is_dmr.shape[0] - is_dmr.values[::-1].argmax() - 1
+            dmr_slice = slice(max(dmr_start - n_surrounding, 0),
+                              min(dmr_end + n_surrounding + 1, anno_group.shape[0]))
+            anno_group = anno_group.iloc[dmr_slice]
+            new_ms = self.meth_stats.update(anno=anno_group)
+            tidy_df, tidy_anno = new_ms.to_tidy_format()
+            title = f'{label}_{region_id}'
 
-            xlim = (self.meth_data.iloc[0]['Start'] - bp_padding, self.meth_data.iloc[-1]['Start'] + bp_padding)
+            figsize = (bp_width_100 * (tidy_df['Start'].iloc[-1] - tidy_df['Start'].iloc[0]) / 100,
+                       tidy_df['Subject'].nunique() * row_height)
 
-            ax.set(xlim=xlim)
-            ax.set_title(title)
+            with axes_context_despined, mpl.rc_context({'axes.grid.axis': 'y'}):
+                ax: Axes
+                fig, ax = plt.subplots(1, 1, constrained_layout=True, figsize=figsize, dpi=180)
 
-            sc = ax.scatter(self.meth_data['Start'] + 0.5, self.meth_data['Subject'], c=self.meth_data['beta_value'],
-                            marker='.', edgecolor='black', linewidth=0.5, s=50,
-                            cmap='YlOrBr', vmin=0, vmax=1,
-                            zorder=10)
+                xlim = (tidy_df.iloc[0]['Start'] - bp_padding, tidy_df.iloc[-1]['Start'] + bp_padding)
 
-            if draw_region_boundaries:
-                curr_region_part = self.anno[self.region_part_col].iloc[0]
-                curr_start = self.anno['Start'].iloc[0]
-                last_boundary = 0
-                for unused_idx, curr_anno_row_ser in self.anno.iterrows():
-                    if curr_anno_row_ser[self.region_part_col] != curr_region_part:
-                        vline_x = curr_start + 0.5 + (curr_anno_row_ser['Start'] - curr_start) / 2
-                        ax.axvline(vline_x, color='gray', linewidth=0.5, linestyle='--')
-                        curr_region_part = curr_anno_row_ser[self.region_part_col]
-                    curr_start = curr_anno_row_ser['Start']
-                    # curr_start = ser['Start']
+                ax.set(xlim=xlim)
+                ax.set_title(title)
+
+                sc = ax.scatter(tidy_df['Start'] + 0.5, tidy_df['Subject'], c=tidy_df['beta_value'],
+                                marker='.', edgecolor='black', linewidth=0.5, s=50,
+                                cmap='YlOrBr', vmin=0, vmax=1,
+                                zorder=10)
+
+                if draw_region_boundaries:
+                    curr_region_part = tidy_anno[self.region_part_col].iloc[0]
+                    curr_start = tidy_anno['Start'].iloc[0]
+                    last_boundary = 0
+                    for unused_idx, curr_anno_row_ser in tidy_anno.iterrows():
+                        if curr_anno_row_ser[self.region_part_col] != curr_region_part:
+                            vline_x = curr_start + 0.5 + (curr_anno_row_ser['Start'] - curr_start) / 2
+                            ax.axvline(vline_x, color='gray', linewidth=0.5, linestyle='--')
+                            curr_region_part = curr_anno_row_ser[self.region_part_col]
+                        curr_start = curr_anno_row_ser['Start']
+                        # curr_start = ser['Start']
 
 
-            if highlighted_subjects is not None:
-                ax.barh(self.subject_y[highlighted_subjects], xlim[1], 0.8,
-                        color='red', alpha=0.3)
+                if highlighted_subjects is not None:
+                    ax.barh(self.subject_y[highlighted_subjects], xlim[1], 0.8,
+                            color='red', alpha=0.3)
 
-            if fig is not None:
-                fig.colorbar(sc, shrink=0.6)
+                if fig is not None:
+                    fig.colorbar(sc, shrink=0.6)
 
-        return fig
+                for suffix in filetypes:
+                    fp = output_dir / f'{title}.{suffix}'
+                    print('Saving', fp)
+                    fig.savefig(fp)
+
 
 
 

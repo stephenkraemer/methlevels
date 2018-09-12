@@ -1,6 +1,15 @@
+import numpy as np
 from pandas.testing import assert_frame_equal
-from methlevels import DMRIntervals, gr_dtypes_d
+from pandas.api.types import CategoricalDtype
+from methlevels import DMRIntervals
 from methlevels.utils import read_csv_with_padding
+
+gr_dtypes_d = {
+    'Chromosome': CategoricalDtype(categories=['1', '2'], ordered=True),
+    'Start': np.int64,
+    'End': np.int64,
+
+}
 
 def test_add_flanks_plain_dmrs():
 

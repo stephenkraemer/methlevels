@@ -6,12 +6,6 @@ class gr_names:
     chrom = 'Chromosome'
     all = ['Chromosome', 'Start', 'End']
 
-gr_dtypes_d = dict(
-        Start = np.int64,
-        End = np.int64,
-        Chromosome = str
-)
-
 def assert_gr_index_contract(index):
     assert index.is_lexsorted()
     assert index.names[0:3] == gr_names.all
