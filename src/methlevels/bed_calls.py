@@ -51,8 +51,7 @@ class BedCalls:
             - subject: name of the biological entity. The same entity may be present in
                 multiple replicates
             - sample_id: unique sample id
-        n_meth_col, n_total_col, beta_value_col: 0-based column indices. The defaults
-            work with a BED6 file, followed by n_meth, n_total, beta_value cols
+        n_meth_col, n_total_col, beta_value_col: 0-based column indices.
 
 
     Prerequisites:

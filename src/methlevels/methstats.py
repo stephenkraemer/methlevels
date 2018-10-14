@@ -599,8 +599,10 @@ class MethStats:
     def get_flat_columns(self):
         return ['_'.join(x) for x in self._meth_stats.columns]
 
-    def save_flat(self, filepaths):
+    def save_flat(self, filepaths: List[str]):
         """save as flat dataframe, prepend the anno columns"""
+
+        assert isinstance(filepaths, list)
 
         # will be restored at the end
         orig_multi_idx = self._meth_stats.columns

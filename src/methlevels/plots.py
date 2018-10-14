@@ -5,7 +5,6 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from packaging.markers import Op
 from typing import Optional, List
 
 from methlevels import MethStats
