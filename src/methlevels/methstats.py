@@ -2,7 +2,7 @@ from itertools import chain
 
 print('reloaded')
 #-
-from typing import Optional, List, Callable, Union
+from typing import Optional, List, Callable, Union, Dict, Tuple
 
 import matplotlib
 matplotlib.use('Agg') # import before pyplot import!
@@ -114,6 +114,8 @@ class MethStats:
     _all_column_names = ['Subject', 'Replicate', 'Stat']
     meth_stat_names = ['n_meth', 'n_total', 'beta_value']
 
+    stats: Dict[str, pd.DataFrame]
+
     """Note on contract enforcement
     
     All methods either return a new instance (almost always the case)
@@ -186,15 +188,31 @@ class MethStats:
 
         self._assert_meth_stats_data_contract()
         self._assert_anno_contract()
+        self.stats = dict()
 
+    @property
+    def counts(self) -> pd.DataFrame:
+        return self._meth_stats
+
+    @counts.setter
+    def counts(self, data):
+        print('Deprecation warning: will change to counts and stats in the future')
+        self._meth_stats = data
+        if self._anno is not None:
+            assert not self._meth_stats.index.duplicated().any()
+            self._anno = self._anno.loc[data.index]
+        self._assert_meth_stats_data_contract()
+        self._assert_anno_contract()
 
     @property
     def df(self) -> pd.DataFrame:
+        print('Deprecation warning: will change to counts and stats in the future')
         return self._meth_stats
 
 
     @df.setter
     def df(self, data):
+        print('Deprecation warning: will change to counts and stats in the future')
         self._meth_stats = data
         if self._anno is not None:
             assert not self._meth_stats.index.duplicated().any()
@@ -620,6 +638,69 @@ class MethStats:
                 ValueError(f'Unknown suffix for {fp}, abort saving')
 
         self._meth_stats.columns = orig_multi_idx
+
+    # Stat computation methods
+    # ==========================================================================
+
+    def add_beta_value_stat(self) -> 'MethStats':
+        """Add beta-value stat df"""
+        if self.level == 'Replicate':
+            group_cols = [self._all_column_names[0], self._all_column_names[1]]
+        else:
+            group_cols = [self._all_column_names[0]]
+
+        def add_beta_values(group_df):
+            df = group_df.copy()
+            idx = df.columns[0][0:-1]
+            beta_values_ser = df.loc[:, idx + ('n_meth',) ] / df.loc[:, idx + ('n_total', )]
+            return beta_values_ser
+
+        beta_values = self.counts.groupby(level=group_cols, axis=1, group_keys=False, observed=True).apply(add_beta_values)
+        self.stats['beta-value'] = beta_values
+
+        return self
+
+
+    def add_zscores(self, stat_name: str) -> 'MethStats':
+        """Row-wise z-score normalization
+
+        Args:
+            stat_name: statistic as input for row-wise z-score
+                normalization. Must already exist.
+
+        Returns:
+            self
+        """
+        df = self.stats[stat_name]
+        self.stats[f'{stat_name}_zscores'] = (
+            df.subtract(df.mean(axis=1), axis=0)
+              .divide(df.std(axis=1), axis=0))
+        return self
+
+    def add_deltas(self, stat_name: str, root: Union[str, Tuple],
+                   output_name: Optional[str] = None) -> 'MethStats':
+        """Add delta score
+
+        Args:
+            stat_name: input statistic. Must already exist.
+            root: sample to use as root population. Value must be usable
+                with .loc indexing to retrieve the sample from the input
+                df
+            output_name: Optional. Otherwise, the name will be:
+                {stat_name}_delta_{root_name}. If root is a tuple, the fields
+                will be converted to str and concatenated with underscores.
+        """
+
+        df = self.stats[stat_name]
+        if output_name is None:
+            if isinstance(root, tuple):
+                root_name = '_'.join((str(x) for x in root))
+            else:
+                assert isinstance(root, str)
+                root_name = root
+            output_name = f'{stat_name}_delta_{root_name}'
+        self.stats[output_name] = df.subtract(df.loc[:, root], axis=0)
+        return self
 
 
 

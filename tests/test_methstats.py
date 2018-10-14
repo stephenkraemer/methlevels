@@ -3,12 +3,20 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 from pandas.api.types import CategoricalDtype
+from pandas.util.testing import assert_index_equal
+
+idxs = pd.IndexSlice
+
 import pytest
 
 from methlevels import MethStats
 from methlevels.utils import read_csv_with_padding
 from methlevels.utils import NamedIndexSlice as nidxs
+from methlevels.utils import NamedColumnsSlice as ncls
 
+
+# beta values here are amazingly wrong, but this is used for tests
+# where it doesn't matter. exchange with new_flat_meth_stats later
 @pytest.fixture()
 def flat_meth_stats():
     return pd.DataFrame({
@@ -25,6 +33,24 @@ def flat_meth_stats():
         'mpp1_1_n_total': [10, 10, 10],
         'mpp1_1_beta_value': [.5, .5, .5],
     })
+
+@pytest.fixture()
+def new_flat_meth_stats():
+    return pd.DataFrame({
+        'chr': pd.Categorical('1 1 2'.split(), categories=['1', '2'], ordered=True),
+        'start': [1, 3, 5],
+        'end': [2, 4, 6],
+        'hsc_1_n_meth': [5, 6, 7],
+        'hsc_1_n_total': [10, 10, 10],
+        'hsc_1_beta_value': [.5, .6, .7],
+        'hsc_2_n_meth': [5, 10, 5],
+        'hsc_2_n_total': [10, 10, 10],
+        'hsc_2_beta_value': [.5, 1., .5],
+        'mpp1_1_n_meth': [10, 10, 10],
+        'mpp1_1_n_total': [10, 10, 10],
+        'mpp1_1_beta_value': [1., 1., 1.],
+    })
+
 
 @pytest.fixture()
 def flat_meth_stats_subject_level():
@@ -325,4 +351,124 @@ def test_to_tidy_format(flat_meth_stats, level, with_anno):
         assert_frame_equal(tidy_anno, expected_tidy_anno)
     else:
         assert tidy_anno is None
+
+
+# Test stat creation
+# ######################################################################
+
+@pytest.mark.parametrize('remove_beta', [True, False])
+def test_add_beta_value_stat(new_flat_meth_stats, remove_beta):
+    meth_stats = MethStats.from_flat_dataframe(new_flat_meth_stats)
+    if remove_beta:
+        meth_stats.counts = meth_stats.counts.drop(columns=['beta_value'], level=-1)
+    meth_stats.add_beta_value_stat()
+    # need to retain one Stat to get the correct expected MIdx
+    # beta_value is missing if remove_beta
+    # n_total will always be there, so we drop beta_value and n_meth
+    exp_columns_idx = (meth_stats.counts.columns
+                       .drop(['n_meth', 'beta_value'], level=-1)
+                       .droplevel(-1))
+    expected_beta_values_df = pd.DataFrame([[.5, .5, 1.],
+                                            [.6, 1., 1.],
+                                            [.7, .5, 1.]],
+                                           index=meth_stats.counts.index,
+                                           columns=exp_columns_idx)
+    assert_frame_equal(meth_stats.stats['beta-value'],
+                       expected_beta_values_df)
+
+def test_add_beta_zscore_stat(new_flat_meth_stats):
+    meth_stats = MethStats.from_flat_dataframe(new_flat_meth_stats)
+    meth_stats.add_beta_value_stat()
+    meth_stats.add_zscores('beta-value')
+    zscores = meth_stats.stats['beta-value_zscores']
+
+    exp_columns_idx = (meth_stats.counts.columns
+                       .drop(['n_meth', 'beta_value'], level=-1)
+                       .droplevel(-1))
+    assert_index_equal(exp_columns_idx, zscores.columns)
+
+    assert_index_equal(meth_stats.counts.index, zscores.index)
+
+    assert_frame_equal(_row_zscore(meth_stats.stats['beta-value']),
+                       zscores)
+
+
+def test_add_delta_meth_rep_level(new_flat_meth_stats):
+    meth_stats = MethStats.from_flat_dataframe(new_flat_meth_stats)
+    meth_stats.add_beta_value_stat()
+    meth_stats.add_deltas(stat_name='beta-value', root=('hsc', '1'))
+    meth_stats.add_deltas(stat_name='beta-value', root=('hsc', '1'),
+                          output_name='beta-value_delta')
+    assert_frame_equal(meth_stats.stats['beta-value_delta_hsc_1'],
+                       meth_stats.stats['beta-value_delta'])
+    # We test separately that the columns and index of the beta_value stats are correct
+    meth_stats.stats['beta-value'].iloc[:, :] = np.array(
+            [[0, 0, .5],
+             [0, .4, .4],
+             [0, -.2, .3]], dtype='f8')
+    assert_frame_equal(meth_stats.stats['beta-value'],
+                       meth_stats.stats['beta-value_delta'])
+
+
+def test_add_delta_meth_pop_level(new_flat_meth_stats):
+    meth_stats = (MethStats
+                  .from_flat_dataframe(new_flat_meth_stats)
+                  .convert_to_populations())
+    meth_stats.add_beta_value_stat()
+    meth_stats.add_deltas(stat_name='beta-value', root='hsc')
+    meth_stats.add_deltas(stat_name='beta-value', root='hsc',
+                          output_name='beta-value_delta')
+    assert_frame_equal(meth_stats.stats['beta-value_delta_hsc'],
+                       meth_stats.stats['beta-value_delta'])
+    # We test separately that the columns and index of the beta_value stats are correct
+    meth_stats.stats['beta-value'].iloc[:, :] = np.array(
+            [[0, .5],
+             [0, .2],
+             [0, .4]], dtype='f8')
+    assert_frame_equal(meth_stats.stats['beta-value'],
+                       meth_stats.stats['beta-value_delta'])
+
+
+def _row_zscore(df):
+    return df.subtract(df.mean(axis=1), axis=0).divide(df.std(axis=1), axis=0)
+
+    # def calculate_region_interval_stats(pops: List[str], T: float, dmr_dfs: List[pd.DataFrame], metadata_table):
+    #     print('RERUN')
+    #     df = get_clustered_df(pops, dmr_dfs, metadata_table)
+    #
+    #     cpg_meth_stats = v1_bed_calls.intersect(df, n_cores=24)
+    #     cpg_meth_stats_pop = cpg_meth_stats.convert_to_populations()
+    #
+    #     dmr_meth_stats_df = (cpg_meth_stats_pop
+    #                          .df
+    #                          .groupby(cpg_meth_stats_pop.anno.region_id)
+    #                          .sum())
+    #     dmr_meth_stats_df.index = df.set_index(ml.gr_names.all).index
+    #     dmr_meth_stats = MethStats(meth_stats=dmr_meth_stats_df)
+    #     dmr_meth_stats.add_beta_values()
+    #
+    #     cpg_beta_df = cpg_meth_stats_pop.df.loc[:, ncls(Stat='beta_value')]
+    #     cpg_beta_df.columns = cpg_beta_df.columns.droplevel(1)
+    #
+    #     region_stats = dict()
+    #
+    #     cpg_delta_df = cpg_beta_df.subtract(cpg_beta_df['hsc'], axis=0)
+    #     interval_auc = cpg_delta_df.groupby(cpg_meth_stats.anno['region_id']).sum()
+    #     interval_auc.index = dmr_meth_stats.df.index
+    #     interval_auc_norm = interval_auc.div(interval_auc.abs().max(axis=1), axis=0)
+    #
+    #     region_stats['auc'] = interval_auc
+    #     region_stats['auc-norm'] = interval_auc_norm
+    #     region_stats['beta-value'] = dmr_meth_stats.df.loc[:, ncls(Stat='beta_value')]
+    #     region_stats['beta-value'].columns = region_stats['beta-value'].columns.droplevel(1)
+    #     region_stats['beta-value_delta'] = region_stats['beta-value'].subtract(region_stats['beta-value']['hsc'], axis=0)
+    #     region_stats['beta-value_z'] = zscore(region_stats['beta-value'])
+    #
+    #     delta_relevance_T = 0.1
+    #     interval_n_relevant_bo_delta = cpg_delta_df.abs().gt(delta_relevance_T).groupby(cpg_meth_stats_pop.anno['region_id']).sum()
+    #     interval_n_relevant_bo_delta.index = dmr_meth_stats.df.index
+    #     region_stats['n-relevant_delta'] = interval_n_relevant_bo_delta
+    #     region_stats['n-relevant_delta_norm']= interval_n_relevant_bo_delta.div(interval_n_relevant_bo_delta.max(axis=1), axis=0)
+    #
+    #     return region_stats
 
