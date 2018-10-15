@@ -1,20 +1,17 @@
 #-
+import subprocess
 import tempfile
 from pathlib import Path
-from joblib import Parallel, delayed
-from io import StringIO
-import re
-import pandas as pd
-from pandas.testing import assert_frame_equal
-from pandas.api.types import CategoricalDtype
 
 import pandas as pd
-import numpy as np
+import pytest
+from joblib import Parallel
+from pandas.api.types import CategoricalDtype
+from pandas.testing import assert_frame_equal
 
 import methlevels as ml
 from methlevels.utils import read_csv_with_padding
-import subprocess
-import pytest
+
 #-
 
 

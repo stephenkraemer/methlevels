@@ -9,10 +9,10 @@ idxs = pd.IndexSlice
 
 import pytest
 
+import methlevels as ml
 from methlevels import MethStats
 from methlevels.utils import read_csv_with_padding
 from methlevels.utils import NamedIndexSlice as nidxs
-from methlevels.utils import NamedColumnsSlice as ncls
 
 
 # beta values here are amazingly wrong, but this is used for tests
@@ -243,62 +243,68 @@ def test_update(flat_meth_stats):
     assert_correct_update(meth_stats, new_meth_stats)
 
 
-def test_additional_index_column(flat_meth_stats):
+def test_additional_index_column():
 
-    flat_meth_stats = pd.concat([flat_meth_stats, flat_meth_stats])
+    flat_meth_stats = read_csv_with_padding("""\
+chr , start , end , region_id , anno1 , hsc_1_beta_value , hsc_1_n_meth , hsc_1_n_total , hsc_2_beta_value , hsc_2_n_meth , hsc_2_n_total , mpp1_1_beta_value , mpp1_1_n_meth , mpp1_1_n_total
+1   , 1     , 3   , 0         , a    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+1   , 5     , 7   , 0         , a    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+1   , 13    , 15  , 1         , b    , 0.5              , 10           , 10            , 0.5              , 15           , 10            , 0.5             , 10          , 10
+1   , 20    , 24  , 1         , b    , 0.5              , 10           , 10            , 0.5              , 15           , 10            , 0.5             , 10          , 10
+2   , 50    , 60  , 2         , c    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+2   , 80    , 90  , 2         , c    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+    """)
 
-    flat_meth_stats['anno1'] = list('abcabc')
-    flat_meth_stats['region_id'] = [0, 0, 0 , 1, 1, 1]
-    meth_stats = MethStats.from_flat_dataframe(flat_meth_stats,
-                                               additional_index_cols=['region_id'])
+    meth_stats = ml.MethStats.from_flat_dataframe(flat_meth_stats,
+                                                  additional_index_cols=['region_id'])
 
     expected_df = read_csv_with_padding("""\
         Subject    ,       ,     ,           , hsc        , hsc    , hsc     , hsc        , hsc    , hsc     , mpp1       , mpp1   , mpp1
         Replicate  ,       ,     ,           , 1          , 1      , 1       , 2          , 2      , 2       , 1          , 1      , 1
         Stat       ,       ,     ,           , beta_value , n_meth , n_total , beta_value , n_meth , n_total , beta_value , n_meth , n_total
         Chromosome , Start , End , region_id ,            ,        ,         ,            ,        ,         ,            ,        ,
-        1          , 1     , 2   , 0         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
-        1          , 1     , 2   , 1         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
-        1          , 3     , 4   , 0         , 0.5        , 10     , 10      , 0.5        , 15     , 10      , 0.5        , 10     , 10
-        1          , 3     , 4   , 1         , 0.5        , 10     , 10      , 0.5        , 15     , 10      , 0.5        , 10     , 10
-        2          , 5     , 6   , 0         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
-        2          , 5     , 6   , 1         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+        1          , 1     , 3   , 0         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+        1          , 5     , 7   , 0         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+        1          , 13    , 15  , 1         , 0.5        , 10     , 10      , 0.5        , 15     , 10      , 0.5        , 10     , 10
+        1          , 20    , 24  , 1         , 0.5        , 10     , 10      , 0.5        , 15     , 10      , 0.5        , 10     , 10
+        2          , 50    , 60  , 2         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+        2          , 80    , 90  , 2         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
     """, index_col=[0, 1, 2, 3], header=[0, 1, 2])
 
     expected_anno = read_csv_with_padding("""\
         Chromosome , Start , End , region_id , anno1
-        1          , 1     , 2   , 0         , a
-        1          , 1     , 2   , 1         , a
-        1          , 3     , 4   , 0         , b
-        1          , 3     , 4   , 1         , b
-        2          , 5     , 6   , 0         , c
-        2          , 5     , 6   , 1         , c
+        1          , 1     , 3   , 0         , a
+        1          , 5     , 7   , 0         , a
+        1          , 13    , 15  , 1         , b
+        1          , 20    , 24  , 1         , b
+        2          , 50    , 60  , 2         , c
+        2          , 80    , 90  , 2         , c
     """, index_col=[0, 1, 2, 3], header=[0])
 
-    meth_stats_expected = MethStats(meth_stats=expected_df, anno=expected_anno)
+    meth_stats_expected = ml.MethStats(meth_stats=expected_df, anno=expected_anno)
 
     assert_frame_equal(meth_stats.df, meth_stats_expected.df, check_names=False)
     assert_frame_equal(meth_stats.anno, meth_stats_expected.anno, check_names=False)
 
-    meth_stats = MethStats.from_flat_dataframe(flat_meth_stats,
-                                               additional_index_cols=['region_id'],
-                                               drop_additional_index_cols=False)
+    meth_stats = ml.MethStats.from_flat_dataframe(flat_meth_stats,
+                                                  additional_index_cols=['region_id'],
+                                                  drop_additional_index_cols=False)
 
     expected_anno_no_drop = read_csv_with_padding("""\
-        Chromosome , Start , End , region_id , anno1 , region_id
-        1          , 1     , 2   , 0         , a     , 0
-        1          , 1     , 2   , 1         , a     , 1
-        1          , 3     , 4   , 0         , b     , 0
-        1          , 3     , 4   , 1         , b     , 1
-        2          , 5     , 6   , 0         , c     , 0
-        2          , 5     , 6   , 1         , c     , 1
+        Chromosome , Start , End , region_id , region_id , anno1
+        1          , 1     , 3   , 0         , 0         , a
+        1          , 5     , 7   , 0         , 0         , a
+        1          , 13    , 15  , 1         , 1         , b
+        1          , 20    , 24  , 1         , 1         , b
+        2          , 50    , 60  , 2         , 2         , c
+        2          , 80    , 90  , 2         , 2         , c
     """, index_col=[0, 1, 2, 3], header=[0]).rename(columns={'region_id.1': 'region_id'})
     print(expected_anno_no_drop)
 
-    meth_stats_expected_no_drop = MethStats(meth_stats=expected_df, anno=expected_anno_no_drop)
-    #
-    # assert_frame_equal(meth_stats.df, meth_stats_expected_no_drop.df, check_names=False)
-    # assert_frame_equal(meth_stats.anno, meth_stats_expected_no_drop.anno, check_names=False)
+    meth_stats_expected_no_drop = ml.MethStats(meth_stats=expected_df, anno=expected_anno_no_drop)
+
+    assert_frame_equal(meth_stats.df, meth_stats_expected_no_drop.df, check_names=False)
+    assert_frame_equal(meth_stats.anno, meth_stats_expected_no_drop.anno, check_names=False)
 
 
 @pytest.mark.parametrize('level', ['Subject', 'Replicate'])
@@ -431,6 +437,66 @@ def test_add_delta_meth_pop_level(new_flat_meth_stats):
 
 def _row_zscore(df):
     return df.subtract(df.mean(axis=1), axis=0).divide(df.std(axis=1), axis=0)
+
+
+@pytest.fixture()
+def element_meth_stats():
+    meth_stats_df = read_csv_with_padding("""\
+Subject    ,       ,     , hsc        , hsc    , hsc     , hsc        , hsc    , hsc     , mpp1       , mpp1   , mpp1
+Replicate  ,       ,     , 1          , 1      , 1       , 2          , 2      , 2       , 1          , 1      , 1
+Stat       ,       ,     , beta_value , n_meth , n_total , beta_value , n_meth , n_total , beta_value , n_meth , n_total
+Chromosome , Start , End ,            ,        ,         ,            ,        ,         ,            ,        ,
+1          , 1     , 3   , 0.5        , 5      , 10      , 0.         , 0      , 10      , 1          , 10     , 10
+1          , 4     , 6   , 1.         , 10     , 10      , 0.6        , 6      , 10      , 1          , 10     , 10
+1          , 10    , 12  , 0.6        , 6      , 10      , 0.5        , 5      , 10      , 1          , 10     , 10
+2          , 5     , 7   , 0.         , 0      , 10      , 1          , 10     , 10      , 0.         , 0      , 10
+2          , 10    , 12  , 1          , 10     , 10      , 1          , 10     , 10      , 0.         , 0      , 10
+    """, index_col=[0, 1, 2], header=[0, 1, 2])
+
+    anno = pd.DataFrame({'region_id': [0, 0, 1, 2, 2]},
+                        index=meth_stats_df.index)
+
+    return meth_stats_df, anno
+
+def test_inputs_are_not_modified(element_meth_stats):
+    meth_stats_df, anno = element_meth_stats
+
+    orig_meth_stats = meth_stats_df.copy(deep=True)
+    orig_anno = anno.copy(deep=True)
+
+    meth_stats = ml.MethStats(meth_stats=meth_stats_df,
+                              anno=anno)
+    assert_frame_equal(orig_anno, anno)
+    assert_frame_equal(orig_meth_stats, meth_stats_df)
+
+    meth_stats = ml.MethStats(element_meth_stats=meth_stats_df,
+                              element_anno=anno)
+    assert_frame_equal(orig_anno, anno)
+    assert_frame_equal(orig_meth_stats, meth_stats_df)
+
+
+def test_aggregate_element_meth_stats(element_meth_stats):
+    meth_stats_df, element_anno = element_meth_stats
+
+    meth_stats = ml.MethStats(element_meth_stats=meth_stats_df,
+                              element_anno=element_anno)
+    meth_stats.aggregate_element_counts()
+
+    expected_counts_df = read_csv_with_padding("""\
+Subject    ,       ,     ,           , hsc    , hsc     , hsc    , hsc     , mpp1   , mpp1
+Replicate  ,       ,     ,           , 1      , 1       , 2      , 2       , 1      , 1
+Stat       ,       ,     ,           , n_meth , n_total , n_meth , n_total , n_meth , n_total
+Chromosome , Start , End , region_id ,        ,         ,        ,         ,        ,
+1          , 1     , 6   , 0         , 15     , 20      , 6      , 20      , 20     , 20
+1          , 10    , 12  , 1         , 6      , 10      , 5      , 10      , 10     , 10
+2          , 5     , 12  , 2         , 10     , 20      , 20     , 20      , 0      , 20
+    """, index_col=[0, 1, 2, 3], header=[0, 1, 2])
+
+    # Process the expected counts df to make it compliant with the counts
+    # contract
+    expected_counts_df = ml.MethStats(meth_stats=expected_counts_df).counts
+
+    assert_frame_equal(meth_stats.counts, expected_counts_df)
 
     # def calculate_region_interval_stats(pops: List[str], T: float, dmr_dfs: List[pd.DataFrame], metadata_table):
     #     print('RERUN')

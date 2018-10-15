@@ -1,9 +1,8 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 from dpcontracts import invariant
-from dataclasses import dataclass
 
-from methlevels import MethStats, gr_names
+from methlevels import gr_names
 
 
 def _dmr_intervals_data_contract(self):

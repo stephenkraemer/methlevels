@@ -125,8 +125,9 @@ class MethStats:
     enforced
     """
 
-    def _assert_meth_stats_data_contract(self):
-        index = self.df.index
+    @staticmethod
+    def _assert_meth_stats_data_contract(df):
+        index = df.index
         assert index.names[0:3] == gr_names.all
         # Index may not have duplicates
         # if GRanges contain duplicates, an additional index level must
@@ -139,56 +140,117 @@ class MethStats:
         assert index.get_level_values(1).dtype == index.get_level_values(2).dtype == np.int64
         assert index.is_lexsorted()
 
-        columns = self.df.columns
+        columns = df.columns
         # May have 2 or 3 levels: subject or replicate level resolution
         assert (columns.names == MethStats._all_column_names
                 or columns.names == [MethStats._all_column_names[i] for i in [0, 2]])
         # Subject is categorical (for sorting, plotting...)
         assert columns.get_level_values(0).dtype.name == 'category'
         assert columns.get_level_values('Stat').dtype.name == 'object'
-        # Stat must contain beta_value, n_meth, n_total, may contain other columns
-        assert {'beta_value', 'n_meth', 'n_total'} <= set(columns.levels[-1])
-        assert self.df.dtypes.loc[nidxs(Stat='beta_value')].eq(np.float).all()
-        assert self.df.dtypes.loc[nidxs(Stat='n_meth')].eq(np.int).all()
-        assert self.df.dtypes.loc[nidxs(Stat='n_total')].eq(np.int).all()
+        # Stat must contain n_meth, n_total, may contain other columns
+        assert {'n_meth', 'n_total'} <= set(columns.levels[-1])
+        assert df.dtypes.loc[nidxs(Stat='n_meth')].eq(np.int).all()
+        assert df.dtypes.loc[nidxs(Stat='n_total')].eq(np.int).all()
         assert columns.is_lexsorted()
 
-    def _assert_anno_contract(self):
-        """Annotation dataframe
+    @staticmethod
+    def _assert_anno_contract(anno, df):
+        if anno is not None:
+            assert anno.index.equals(df.index)
+            assert not isinstance(anno.columns, pd.MultiIndex)
+        if anno is not None and 'region_id' in anno:
+            # assert that region IDs are not reused for different chromosomes
+            assert not (anno['region_id'].groupby('Chromosome', group_keys=False)
+                        .apply(lambda df: df.drop_duplicates())
+                        .duplicated()
+                        .any()
+                        )
 
-        - aligned with meth stats df
-        - arbitrary annotation columns allowed
-        - flat column index
-        """
-        if self.anno is not None:
-            assert self.anno.index.equals(self.df.index)
-            assert not isinstance(self.anno.columns, pd.MultiIndex)
 
-
-    def __init__(self, meth_stats: pd.DataFrame, anno: Optional[pd.DataFrame] = None,
+    def __init__(self, meth_stats: Optional[pd.DataFrame] = None,
+                 anno: Optional[pd.DataFrame] = None,
+                 element_meth_stats: Optional[pd.DataFrame] = None,
+                 element_anno: Optional[pd.DataFrame] = None,
                  chromosome_order: Optional[List[str]] = None,
                  subject_order: Optional[List[str]] = None) -> None:
 
-        assert isinstance(meth_stats.columns, pd.MultiIndex), \
-            'This dataframe has a flat column index. Please use the dedicated constructor function'
+        self._assert_init_argument_properties(element_anno, element_meth_stats, meth_stats)
 
-        if anno is not None:
-            assert meth_stats.index.equals(anno.index), 'meth_stats and anno must have same index'
-        self._meth_stats = meth_stats.copy()
-        self._anno = anno.copy() if anno is not None else None
+        self.level = self._determine_level(element_meth_stats, meth_stats)
+
+        if meth_stats is not None and element_meth_stats is not None:
+            assert meth_stats.columns.equals(element_meth_stats.columns)
+
         self.chromosome_order = list(chromosome_order) if chromosome_order else None
         self.subject_order = list(subject_order) if subject_order else None
 
-        self.level = 'Replicate' if len(meth_stats.columns.levels) == 3 else 'Subject'
         self.column_names = self._all_column_names if self.level == 'Replicate' else [
             self._all_column_names[0], self._all_column_names[2]
         ]
 
-        self._process_hierarchical_dataframe()
+        if meth_stats is not None:
+            self._meth_stats = self._process_hierarchical_dataframe(meth_stats)
+            self._assert_meth_stats_data_contract(self._meth_stats)
+        if element_meth_stats is not None:
+            self.element_meth_stats = self._process_hierarchical_dataframe(element_meth_stats)
+            self._assert_meth_stats_data_contract(self.element_meth_stats)
 
-        self._assert_meth_stats_data_contract()
-        self._assert_anno_contract()
+        if anno is not None:
+            anno = anno.copy(deep=True)
+            assert anno.index.equals(meth_stats.index)
+            anno.index = self._meth_stats.index
+            self._assert_anno_contract(anno, self._meth_stats)
+            self._anno = anno.copy()
+        else:
+            self._anno = None
+
+        # must be called after adding the anno attribute, because the df property
+        # asserts compatibility between anno and df
+        if meth_stats is not None and not self._meth_stats.columns.levels[-1].contains('beta_value'):
+            self.add_beta_values()
+
+        if element_anno is not None:
+            element_anno = element_anno.copy(deep=True)
+            assert element_anno.index.equals(element_meth_stats.index)
+            element_anno.index = self.element_meth_stats.index
+            self._assert_anno_contract(element_anno, self.element_meth_stats)
+            self.element_anno = element_anno.copy()
+        else:
+            self.element_anno = None
+
+
         self.stats = dict()
+
+
+    @staticmethod
+    def _determine_level(element_meth_stats, meth_stats) -> str:
+        # Determine level
+        level = None
+        if meth_stats is not None:
+            level = 'Replicate' if len(meth_stats.columns.levels) == 3 else 'Subject'
+        if element_meth_stats is not None:
+            element_meth_stats_level = 'Replicate' if len(element_meth_stats.columns.levels) == 3 else 'Subject'
+            if level:
+                assert level == element_meth_stats_level
+            else:
+                level = element_meth_stats_level
+        if level is None:
+            raise TypeError('Must pass at least one of meth_stats and element_meth_stats')
+        return level
+
+    @staticmethod
+    def _assert_init_argument_properties(element_anno, element_meth_stats, meth_stats):
+        # General assertions
+        if meth_stats is None and element_meth_stats is None:
+            raise TypeError('Must pass at least one of meth_stats or element_meth_stats')
+        if meth_stats is not None:
+            assert isinstance(meth_stats.columns, pd.MultiIndex), \
+                'This dataframe has a flat column index. Please use the dedicated constructor function'
+        if element_meth_stats is not None:
+            assert isinstance(element_meth_stats.columns, pd.MultiIndex), \
+                'This dataframe has a flat column index. Please use the dedicated constructor function'
+            assert element_anno is not None
+            assert 'region_id' in element_anno
 
     @property
     def counts(self) -> pd.DataFrame:
@@ -201,8 +263,8 @@ class MethStats:
         if self._anno is not None:
             assert not self._meth_stats.index.duplicated().any()
             self._anno = self._anno.loc[data.index]
-        self._assert_meth_stats_data_contract()
-        self._assert_anno_contract()
+        self._assert_meth_stats_data_contract(self._meth_stats)
+        self._assert_anno_contract(self._anno, self._meth_stats)
 
     @property
     def df(self) -> pd.DataFrame:
@@ -217,8 +279,8 @@ class MethStats:
         if self._anno is not None:
             assert not self._meth_stats.index.duplicated().any()
             self._anno = self._anno.loc[data.index]
-        self._assert_meth_stats_data_contract()
-        self._assert_anno_contract()
+        self._assert_meth_stats_data_contract(self._meth_stats)
+        self._assert_anno_contract(self._anno, self._meth_stats)
 
 
     @property
@@ -231,8 +293,8 @@ class MethStats:
         assert not anno.index.duplicated().any()
         self._anno = anno
         self._meth_stats = self._meth_stats.loc[anno.index, :]
-        self._assert_meth_stats_data_contract()
-        self._assert_anno_contract()
+        self._assert_meth_stats_data_contract(self._meth_stats)
+        self._assert_anno_contract(self._anno, self._meth_stats)
 
 
     @classmethod
@@ -385,6 +447,7 @@ class MethStats:
             new_df = pd.concat([add_beta_values(group_df)
                                 for name, group_df in self.df.groupby(level=group_cols, axis=1)], axis=1)
             new_df.sort_index(axis=1, inplace=True)
+            # noinspection PyAttributeOutsideInit
             self.df = new_df
 
 
@@ -420,7 +483,7 @@ class MethStats:
             raise TypeError('No update specified')
 
 
-    def _process_hierarchical_dataframe(self):
+    def _process_hierarchical_dataframe(self, df):
         """Expects GR index and hierarchical column index
 
         if subject string, will be turned to categorical in order of appearance
@@ -433,7 +496,7 @@ class MethStats:
         i64 for start, end; categorical for chr, subject
         """
 
-        df = self._meth_stats
+        df = df.copy(deep=True)
 
         assert not df.isnull().all().all(), 'All meth stats are NA'
 
@@ -459,16 +522,12 @@ class MethStats:
             print(chromosome_index.categories)
             other_index_levels = (df.index.get_level_values(i) for i in range(1, df.index.nlevels))
             row_midx = pd.MultiIndex.from_arrays(chain([chromosome_index], other_index_levels),
-                                                 names=self.df.index.names)
+                                                 names=df.index.names)
             df.index = row_midx
-            if self.anno is not None:
-                self.anno.index = row_midx
         else:
+            # noinspection PyUnresolvedReferences
             assert isinstance(chromosome_index.categories[0], str)
-        if len(df.columns.levels) == 2:
-            df.columns.names = self.column_names
-        else:
-            df.columns.names = self.column_names
+        df.columns.names = self.column_names
         subject_idx = df.columns.get_level_values('Subject')
         if not subject_idx.dtype.name == 'category':
             subject_order = self.subject_order if self.subject_order else list(df.columns.get_level_values(0).unique())
@@ -487,15 +546,14 @@ class MethStats:
             df.columns = col_midx
 
 
-        self._meth_stats = df
 
-        if not self._meth_stats.columns.levels[-1].contains('beta_value'):
-            self.add_beta_values()
 
-        if not self._meth_stats.index.is_lexsorted():
-            self._meth_stats.sort_index(inplace=True, axis=0)
-        if not self._meth_stats.columns.is_lexsorted():
-            self._meth_stats.sort_index(inplace=True, axis=1)
+        if not df.index.is_lexsorted():
+            df.sort_index(inplace=True, axis=0)
+        if not df.columns.is_lexsorted():
+            df.sort_index(inplace=True, axis=1)
+
+        return df
 
     def apply_coverage_limit(self, threshold: int):
         has_enough_coverage = (self._meth_stats.loc[:, idxs[:, :, 'n_total']] >= threshold).all(axis=1)
@@ -702,5 +760,50 @@ class MethStats:
         self.stats[output_name] = df.subtract(df.loc[:, root], axis=0)
         return self
 
+    # element_meth_stats queries
+    # ==========================================================================
+    def aggregate_element_counts(self) -> 'MethStats':
+        """Aggregate element counts into interval counts
+
+        - aggregates n_meth and n_total based on the region_ids in the
+          element_anno dataframe
+        - computes beta values for the interval stats
+
+        Returns:
+            - index of the resulting counts df will have levels
+              ['Chromosome', 'Start', 'End', 'region_id']
+        """
+        if self.anno is not None:
+            new_gr_index = self.anno.index
+        else:
+            def get_region_interval(df):
+                return pd.Series({'Chromosome': df['Chromosome'].iloc[0],
+                                  'Start': df['Start'].iloc[0],
+                                  'End': df['End'].iloc[-1],
+                                  'region_id': df['region_id'].iloc[0]})
+            # Possible problem: what happens if region_id is also in the index?
+            new_gr_df = (self
+                         .element_anno
+                         .reset_index()
+                         .groupby('region_id')
+                         .apply(get_region_interval)
+                         )
+            new_gr_df['Chromosome'] = new_gr_df['Chromosome'].astype(
+                    self.element_anno.index.get_level_values('Chromosome').dtype)
+            new_gr_index = new_gr_df.set_index(new_gr_df.columns.values.tolist()).index
+
+        meth_stats_df = (self.element_meth_stats
+                         .groupby(self.element_anno['region_id'])
+                         .sum()
+                         .set_axis(new_gr_index, axis=0, inplace=False)
+                         )
+
+        # noinspection PyAttributeOutsideInit
+        self.counts = meth_stats_df
+
+        if 'beta_value' in meth_stats_df.columns.get_level_values(-1):
+            self.add_beta_values()
+
+        return self
 
 

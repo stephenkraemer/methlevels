@@ -1,11 +1,11 @@
+from typing import Optional, List
+
 import matplotlib as mpl
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from typing import Optional, List
 
 from methlevels import MethStats
 from methlevels.utils import NamedColumnsSlice as ncls
