@@ -816,26 +816,34 @@ class MethStats:
                 return pd.Series({'Chromosome': df['Chromosome'].iloc[0],
                                   'Start': df['Start'].iloc[0],
                                   'End': df['End'].iloc[-1],
-                                  'region_id': df['region_id'].iloc[0]})
+                                  'region_id': df['region_id'].iloc[0],
+                                  'n_elements': len(df),
+                                  'n_cpg': len(df)})
             # Possible problem: what happens if region_id is also in the index?
-            new_gr_df = (self
+            new_anno_df = (self
                          .element_anno
                          .reset_index()
                          .groupby('region_id')
                          .apply(get_region_interval)
                          )
-            new_gr_df['Chromosome'] = new_gr_df['Chromosome'].astype(
+            new_anno_df['Chromosome'] = new_anno_df['Chromosome'].astype(
                     self.element_anno.index.get_level_values('Chromosome').dtype)
-            new_gr_index = new_gr_df.set_index(new_gr_df.columns.values.tolist()).index
+            new_anno_df.set_index(['Chromosome', 'Start', 'End', 'region_id'], inplace=True)
+            new_gr_index = new_anno_df.index
 
         meth_stats_df = (self.element_meth_stats
                          .groupby(self.element_anno['region_id'])
                          .sum()
                          .set_axis(new_gr_index, axis=0, inplace=False)
                          )
-
         # noinspection PyAttributeOutsideInit
         self.counts = meth_stats_df
+
+        # Add anno df after counts df, because the anno property contract
+        # required infos from the counts df
+        if self.anno is None:
+            # noinspection PyAttributeOutsideInit,PyUnboundLocalVariable
+            self.anno = new_anno_df
 
         if 'beta_value' in meth_stats_df.columns.get_level_values(-1):
             self.add_beta_values()
