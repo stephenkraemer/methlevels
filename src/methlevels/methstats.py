@@ -684,6 +684,12 @@ class MethStats:
 
     def qc_filter(self, coverage=None, size=None, min_delta=None):
 
+        # we start with self
+        # if a filter is applied, a new MethStats instance is returned
+        # whether meth_in_regions points to self or a new instance in later
+        # processing steps depends on the previous flags
+        # Therefore, we first assign self to the name meth_in_regions, which
+        # will point to varying instances as we go along
         meth_in_regions = self
         if coverage:
             meth_in_regions = meth_in_regions.apply_fraction_loss_capped_coverage_limit(
@@ -695,12 +701,9 @@ class MethStats:
             meth_in_regions = meth_in_regions.apply_size_limit(size)
 
         if min_delta:
-
             betas = meth_in_regions._meth_stats.loc[:, ncls(Stat='beta_value')]
-
             abs_deltas = betas.max(axis=1) - betas.min(axis=1)
             has_sufficient_delta = abs_deltas > min_delta
-
             meth_in_regions = MethStats(
                     meth_stats=meth_in_regions._meth_stats.loc[has_sufficient_delta, :].copy(),
                     anno=meth_in_regions._anno.loc[has_sufficient_delta, :].copy(),
