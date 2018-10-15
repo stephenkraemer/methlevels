@@ -51,6 +51,21 @@ def new_flat_meth_stats():
         'mpp1_1_beta_value': [1., 1., 1.],
     })
 
+@pytest.fixture()
+def new_flat_meth_stats_pop_level():
+    return pd.DataFrame({
+        'chr': pd.Categorical('1 1 2'.split(), categories=['1', '2'], ordered=True),
+        'start': [1, 3, 5],
+        'end': [2, 4, 6],
+        'hsc_n_meth': [10, 16, 12],
+        'hsc_n_total': [20, 20, 20],
+        'hsc_beta_value': [.5, 16/20, 12/20],
+        'mpp1_n_meth': [10, 10, 10],
+        'mpp1_n_total': [10, 10, 10],
+        'mpp1_beta_value': [1., 1., 1.],
+    })
+
+
 
 @pytest.fixture()
 def flat_meth_stats_subject_level():
@@ -165,17 +180,40 @@ def test_initializes_from_hierarchical_df(chromosome_order, subject_index_type, 
 
 
 @pytest.mark.parametrize('with_anno_cols', [True, False])
-def test_convert_to_populations(flat_meth_stats, with_anno_cols):
+@pytest.mark.parametrize('elements', [True, False])
+def test_convert_to_populations(new_flat_meth_stats, new_flat_meth_stats_pop_level,
+                                with_anno_cols, elements):
     if with_anno_cols:
-        flat_meth_stats['size'] = 3
-    pop_level_meth_stats = MethStats.from_flat_dataframe(flat_meth_stats).convert_to_populations()
-    assert pop_level_meth_stats.df.loc[('1', 3, 4), ('hsc', 'n_meth')] == 25
-    dtypes=pop_level_meth_stats.df.dtypes
-    assert dtypes.loc[nidxs(Stat='beta_value')].eq(np.float).all()
-    assert dtypes.loc[nidxs(Stat='n_meth')].eq(np.int).all()
-    assert dtypes.loc[nidxs(Stat='n_total')].eq(np.int).all()
-    if with_anno_cols:
-        assert pop_level_meth_stats.anno['size'].eq(3).all()
+        new_flat_meth_stats['size'] = np.arange(
+                len(new_flat_meth_stats))
+        new_flat_meth_stats_pop_level['size'] = np.arange(
+                len(new_flat_meth_stats_pop_level))
+    # if the data are element-level, the anno df must contain a region_id column
+    if elements:
+        new_flat_meth_stats['region_id'] = np.arange(
+                len(new_flat_meth_stats))
+        new_flat_meth_stats_pop_level['region_id'] = np.arange(
+                len(new_flat_meth_stats_pop_level))
+
+    # The expected result has either the counts or the element_meth_stats filled,
+    # but not both
+    if elements:
+        expected_pop_level_meth_stats = ml.MethStats.from_flat_dataframe(
+                new_flat_meth_stats_pop_level, elements=True)
+        assert expected_pop_level_meth_stats.element_meth_stats is not None
+    else:
+        expected_pop_level_meth_stats = ml.MethStats.from_flat_dataframe(
+                new_flat_meth_stats_pop_level, elements=False)
+        assert expected_pop_level_meth_stats.element_meth_stats is None
+
+    # Read flat meth stats either as element or interval, then convert
+    computed_pop_level_meth_stats = (
+        ml.MethStats.from_flat_dataframe(
+                new_flat_meth_stats, elements=elements)
+            .convert_to_populations())
+
+    # Two dfs should be None, two should be filled
+    assert expected_pop_level_meth_stats == computed_pop_level_meth_stats
 
 
 def test_add_beta_values(flat_meth_stats, flat_meth_stats_subject_level):

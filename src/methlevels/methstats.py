@@ -191,9 +191,14 @@ class MethStats:
         if meth_stats is not None:
             self._meth_stats = self._process_hierarchical_dataframe(meth_stats)
             self._assert_meth_stats_data_contract(self._meth_stats)
+        else:
+            self._meth_stats = None
+
         if element_meth_stats is not None:
             self.element_meth_stats = self._process_hierarchical_dataframe(element_meth_stats)
             self._assert_meth_stats_data_contract(self.element_meth_stats)
+        else:
+            self.element_meth_stats = None
 
         if anno is not None:
             anno = anno.copy(deep=True)
@@ -599,23 +604,49 @@ class MethStats:
 
 
     def convert_to_populations(self):
-        pop_stats_df = self._meth_stats.groupby(level=['Subject', 'Stat'], axis=1).sum()
+        if self._meth_stats is not None:
+            pop_stats_df = self._meth_stats.groupby(level=['Subject', 'Stat'], axis=1).sum()
 
-        def update_beta_values(group_df):
-            group_df[group_df.name, 'beta_value'] = (group_df[group_df.name, 'n_meth']
-                                                     / group_df[group_df.name, 'n_total'])
-            return group_df
-        pop_stats_df = pop_stats_df.groupby(level='Subject', axis=1).apply(update_beta_values)
+            def update_beta_values(group_df):
+                group_df[group_df.name, 'beta_value'] = (group_df[group_df.name, 'n_meth']
+                                                         / group_df[group_df.name, 'n_total'])
+                return group_df
+            pop_stats_df = pop_stats_df.groupby(level='Subject', axis=1).apply(update_beta_values)
 
-        pop_stats_df.loc[:, ncls(Stat='n_meth')] = pop_stats_df.loc[:, ncls(Stat='n_meth')].astype(np.int64)
-        pop_stats_df.loc[:, ncls(Stat='n_total')] = pop_stats_df.loc[:, ncls(Stat='n_total')].astype(np.int64)
+            pop_stats_df.loc[:, ncls(Stat='n_meth')] = pop_stats_df.loc[:, ncls(Stat='n_meth')].astype(np.int64)
+            pop_stats_df.loc[:, ncls(Stat='n_total')] = pop_stats_df.loc[:, ncls(Stat='n_total')].astype(np.int64)
 
-        if self._anno is None:
-            anno_copy = None
+            if self._anno is None:
+                anno_copy = None
+            else:
+                anno_copy = self._anno.copy()
         else:
-            anno_copy = self._anno.copy()
+            pop_stats_df = None
+            anno_copy = None
 
-        return MethStats(meth_stats=pop_stats_df, anno=anno_copy)
+        if self.element_meth_stats is not None:
+            element_pop_stats_df = self.element_meth_stats.groupby(level=['Subject', 'Stat'], axis=1).sum()
+
+            def update_beta_values(group_df):
+                group_df[group_df.name, 'beta_value'] = (group_df[group_df.name, 'n_meth']
+                                                         / group_df[group_df.name, 'n_total'])
+                return group_df
+            element_pop_stats_df = element_pop_stats_df.groupby(level='Subject', axis=1).apply(update_beta_values)
+
+            element_pop_stats_df.loc[:, ncls(Stat='n_meth')] = element_pop_stats_df.loc[:, ncls(Stat='n_meth')].astype(np.int64)
+            element_pop_stats_df.loc[:, ncls(Stat='n_total')] = element_pop_stats_df.loc[:, ncls(Stat='n_total')].astype(np.int64)
+
+            if self.element_anno is None:
+                element_anno_copy = None
+            else:
+                element_anno_copy = self.element_anno.copy()
+        else:
+            element_pop_stats_df = None
+            element_anno_copy = None
+
+        return MethStats(meth_stats=pop_stats_df, anno=anno_copy,
+                         element_meth_stats=element_pop_stats_df,
+                         element_anno=element_anno_copy)
 
 
     def sample(self, n, random_state=123):
@@ -810,5 +841,23 @@ class MethStats:
             self.add_beta_values()
 
         return self
+
+
+    def __eq__(self, other) -> bool:
+        def compare_none_or_df(elem, other):
+            if elem is None:
+                return elem == other
+            elif isinstance(elem, pd.DataFrame):
+                return elem.equals(other)
+            else:
+                raise ValueError()
+        return (compare_none_or_df(self.counts, other.counts)
+                and compare_none_or_df(self.anno, other.anno)
+                and compare_none_or_df(self.element_meth_stats,
+                                       other.element_meth_stats)
+                and compare_none_or_df(self.element_anno,
+                                       other.element_anno)
+                and self.level == other.level)
+
 
 
