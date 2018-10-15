@@ -300,6 +300,7 @@ class MethStats:
     @classmethod
     def from_flat_dataframe(cls, meth_stats_with_anno: pd.DataFrame,
                             pop_order: List[str]=None,
+                            elements: bool = False,
                             additional_index_cols: List[str] = None,
                             drop_additional_index_cols: bool = True):
         """expects integer index and columns
@@ -397,7 +398,11 @@ class MethStats:
             anno.index = gr_index
             anno = anno.sort_index(axis=0)
 
-        return cls(meth_stats=meth_stats, anno=anno)
+        # TODO: add test
+        if elements:
+            return cls(element_meth_stats=meth_stats, element_anno=anno)
+        else:
+            return cls(meth_stats=meth_stats, anno=anno)
 
 
     def to_tidy_format(self):

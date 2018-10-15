@@ -150,6 +150,7 @@ class BedCalls:
 
     def intersect(self, intervals_df: pd.DataFrame, n_cores: int = None,
                   additional_index_cols: Optional[List[str]] = None,
+                  elements: bool = False,
                   drop_additional_index_cols=True, parallel: joblib.Parallel = None) -> MethStats:
         """Retrieve individual motifs, annotated with their parent interval
         
@@ -170,6 +171,8 @@ class BedCalls:
         from annotation variables by passing them via /additional_index_cols/
 
         """
+
+        print('Deprecation warning: elements will be changed to True in the future')
 
         assert intervals_df.columns[0] in ['chr', '#chr', 'chromosome', 'Chromosome', 'chrom']
         assert intervals_df.columns[1:3].to_series().str.lower().tolist() == ['start', 'end']
@@ -201,6 +204,7 @@ class BedCalls:
         flat_df['Chromosome'] = flat_df['Chromosome'].cat.set_categories(
                 index_df['Chromosome'].unique(), ordered=True)
         meth_levels = MethStats.from_flat_dataframe(flat_df, pop_order=self.pop_order,
+                                                    elements=elements,
                                                     additional_index_cols=additional_index_cols,
                                                     drop_additional_index_cols=drop_additional_index_cols)
 
