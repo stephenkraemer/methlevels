@@ -1,4 +1,6 @@
 from copy import deepcopy
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
@@ -11,6 +13,7 @@ import pytest
 
 import methlevels as ml
 from methlevels import MethStats
+from methlevels.utils import read_csv_with_padding
 from methlevels.utils import read_csv_with_padding
 from methlevels.utils import NamedIndexSlice as nidxs
 
@@ -80,6 +83,52 @@ def flat_meth_stats_subject_level():
         'mpp1_n_total': [10, 10, 10],
         'mpp1_beta_value': [.5, .5, .5],
     })
+
+
+@pytest.fixture
+def flat_meth_stats3():
+    flat_meth_stats = read_csv_with_padding("""\
+chr , start , end , region_id , anno1 , hsc_1_beta_value , hsc_1_n_meth , hsc_1_n_total , hsc_2_beta_value , hsc_2_n_meth , hsc_2_n_total , mpp1_1_beta_value , mpp1_1_n_meth , mpp1_1_n_total
+1   , 1     , 3   , 0         , a    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+1   , 5     , 7   , 0         , a    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+1   , 13    , 15  , 1         , b    , 0.5              , 10           , 10            , 0.5              , 15           , 10            , 0.5             , 10          , 10
+1   , 20    , 24  , 1         , b    , 0.5              , 10           , 10            , 0.5              , 15           , 10            , 0.5             , 10          , 10
+2   , 50    , 60  , 2         , c    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+2   , 80    , 90  , 2         , c    , 0.5              , 10           , 10            , 0.5              , 10           , 10            , 0.5             , 10          , 10
+    """)
+    return flat_meth_stats
+
+
+@pytest.fixture
+def hierarchical_counts3():
+    hierarchical_counts = read_csv_with_padding("""\
+        Subject    ,       ,     ,           , hsc        , hsc    , hsc     , hsc        , hsc    , hsc     , mpp1       , mpp1   , mpp1
+        Replicate  ,       ,     ,           , 1          , 1      , 1       , 2          , 2      , 2       , 1          , 1      , 1
+        Stat       ,       ,     ,           , beta_value , n_meth , n_total , beta_value , n_meth , n_total , beta_value , n_meth , n_total
+        Chromosome , Start , End , region_id ,            ,        ,         ,            ,        ,         ,            ,        ,
+        1          , 1     , 3   , 0         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+        1          , 5     , 7   , 0         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+        1          , 13    , 15  , 1         , 0.5        , 10     , 10      , 0.5        , 15     , 10      , 0.5        , 10     , 10
+        1          , 20    , 24  , 1         , 0.5        , 10     , 10      , 0.5        , 15     , 10      , 0.5        , 10     , 10
+        2          , 50    , 60  , 2         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+        2          , 80    , 90  , 2         , 0.5        , 10     , 10      , 0.5        , 10     , 10      , 0.5        , 10     , 10
+    """, index_col=[0, 1, 2, 3], header=[0, 1, 2])
+    return hierarchical_counts
+
+
+@pytest.fixture
+def anno3():
+    anno = read_csv_with_padding("""\
+        Chromosome , Start , End , region_id , anno1
+        1          , 1     , 3   , 0         , a
+        1          , 5     , 7   , 0         , a
+        1          , 13    , 15  , 1         , b
+        1          , 20    , 24  , 1         , b
+        2          , 50    , 60  , 2         , c
+        2          , 80    , 90  , 2         , c
+    """, index_col=[0, 1, 2, 3], header=[0])
+    return anno
+
 
 def test_anno_contract(flat_meth_stats):
     meth_stats = MethStats.from_flat_dataframe(flat_meth_stats)
@@ -535,6 +584,36 @@ Chromosome , Start , End , region_id ,        ,         ,        ,         ,    
     expected_counts_df = ml.MethStats(meth_stats=expected_counts_df).counts
 
     assert_frame_equal(meth_stats.counts, expected_counts_df)
+
+def test_save_flat(tmpdir, hierarchical_counts3, anno3, flat_meth_stats3):
+    tmpdir = Path(tmpdir)
+    meth_stats = ml.MethStats(meth_stats=hierarchical_counts3,
+                              anno=anno3)
+
+    # files can be saved in different formats
+    output_tsv = str(tmpdir / 'test.tsv')
+    output_p = str(tmpdir / 'test.p')
+    meth_stats.save_flat([output_tsv, output_p])
+    flat_meth_stats_from_p = pd.read_pickle(output_p)
+    flat_meth_stats_from_tsv = pd.read_csv(
+            output_tsv, sep='\t', header=0,
+            dtype={'Chromosome': CategoricalDtype(categories=['1', '2'], ordered=True)})
+    assert_frame_equal(flat_meth_stats_from_p, flat_meth_stats_from_tsv)
+    expected_flat_meth_stats = flat_meth_stats3.rename(columns=ml.MethStats.grange_col_name_mapping).assign(
+            Chromosome = lambda df: pd.Categorical(df['Chromosome'].astype(str), categories=['1', '2'],
+                                                   ordered=True)
+    )
+    assert_frame_equal(flat_meth_stats_from_tsv, expected_flat_meth_stats)
+
+    # check for bug which occured when the same meth stats object was saved twice
+    meth_stats.save_flat([output_tsv])
+    flat_meth_stats_from_tsv = pd.read_csv(
+            output_tsv, sep='\t', header=0,
+            dtype={'Chromosome': CategoricalDtype(categories=['1', '2'], ordered=True)})
+    assert_frame_equal(flat_meth_stats_from_p, flat_meth_stats_from_tsv)
+
+
+
 
     # def calculate_region_interval_stats(pops: List[str], T: float, dmr_dfs: List[pd.DataFrame], metadata_table):
     #     print('RERUN')
