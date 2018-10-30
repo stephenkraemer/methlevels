@@ -12,12 +12,12 @@ setup(name='methlevels',
       package_dir={'': 'src'},
 
       install_requires=[
-          'dpcontracts=0.4.0',
+          'dpcontracts==0.4.0',
           'pandas>=0.23.4',
           'joblib>=0.12',
           'matplotlib>=3.0.0',
           'seaborn>=0.9.0',
-          'numpy'
+          'numpy',
           'pyranges',
       ],
 
@@ -26,7 +26,7 @@ setup(name='methlevels',
       extras_require={
           'dev': [
               'pytest',
-              'mypy=0.610',
+              'mypy',
           ],
       },
 
