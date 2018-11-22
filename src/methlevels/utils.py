@@ -98,7 +98,7 @@ def NamedColumnsSlice(**kwargs):
             else:
                 break
 
-        print('using ', tuple(slicing_list))
+        # print('using ', tuple(slicing_list))
 
         return tuple(slicing_list)
 

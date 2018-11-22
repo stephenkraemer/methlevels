@@ -1,4 +1,3 @@
-print('reloaded')
 #-
 import tempfile
 from io import StringIO
