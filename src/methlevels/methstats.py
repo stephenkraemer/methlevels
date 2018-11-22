@@ -2,12 +2,14 @@ from itertools import chain
 
 #-
 from typing import Optional, List, Callable, Union, Dict, Tuple
+from pathlib import Path
 
 import matplotlib
 matplotlib.use('Agg') # import before pyplot import!
 import numpy as np
 import pandas as pd
 from pandas import IndexSlice as idxs
+from pandas.api.types import is_bool_dtype
 
 from methlevels.utils import NamedColumnsSlice as ncls
 from methlevels.utils import NamedIndexSlice as nidxs
@@ -157,9 +159,11 @@ class MethStats:
         if anno is not None:
             assert anno.index.equals(df.index)
             assert not isinstance(anno.columns, pd.MultiIndex)
-        if anno is not None and 'region_id' in anno:
+        if anno is not None and 'region_id' in anno.index.names:
             # assert that region IDs are not reused for different chromosomes
-            assert not (anno['region_id'].groupby('Chromosome', group_keys=False)
+            assert not (anno
+                        .reset_index()
+                        .groupby('Chromosome', group_keys=False)['region_id']
                         .apply(lambda df: df.drop_duplicates())
                         .duplicated()
                         .any()
@@ -254,7 +258,7 @@ class MethStats:
             assert isinstance(element_meth_stats.columns, pd.MultiIndex), \
                 'This dataframe has a flat column index. Please use the dedicated constructor function'
             assert element_anno is not None
-            assert 'region_id' in element_anno
+            assert 'region_id' in element_anno.index.names
 
     @property
     def counts(self) -> pd.DataFrame:
@@ -591,6 +595,18 @@ class MethStats:
             new_anno = self._anno.loc[coverage_ok_in_all_samples, :].copy()
         return MethStats(meth_stats=new_meth_stats, anno=new_anno)
 
+    def is_above_quantile_capped_coverage_threshold(
+            self, coverage_threshold, max_fraction_lost):
+        coverage_stats = self._meth_stats.loc[:, ncls(Stat='n_total')]
+        per_sample_quantiles = coverage_stats.quantile(max_fraction_lost, axis=0)
+        per_sample_thresholds = (per_sample_quantiles
+                                 .where(per_sample_quantiles < coverage_threshold,
+                                        coverage_threshold))
+        coverage_mask: pd.DataFrame = coverage_stats >= per_sample_thresholds
+        coverage_ok_in_all_samples = coverage_mask.all(axis=1)
+        return coverage_ok_in_all_samples
+
+
 
     def apply_size_limit(self, n_cpg_threshold):
         is_large_enough = self._anno.loc[:, 'n_cpg'] >= n_cpg_threshold
@@ -602,7 +618,8 @@ class MethStats:
         return MethStats(meth_stats=new_meth_stats, anno=new_anno)
 
 
-    def convert_to_populations(self):
+
+    def convert_to_populations(self) -> 'MethStats':
         if self._meth_stats is not None:
             pop_stats_df = self._meth_stats.groupby(level=['Subject', 'Stat'], axis=1).sum()
 
@@ -710,6 +727,72 @@ class MethStats:
 
         return meth_in_regions
 
+    def filter_intervals(self, coverage=None, n_cpg_min=None, min_delta=None):
+
+        is_ok_df = pd.DataFrame(index=self._meth_stats.index)
+
+        if coverage:
+            is_ok_df['coverage_ok'] = self.is_above_quantile_capped_coverage_threshold(
+                    coverage_threshold=coverage,
+                    max_fraction_lost=0.2
+            )
+
+        if n_cpg_min:
+            try:
+                is_ok_df['n_cpg_ok'] = self._anno.loc[:, 'n_cpg'] >= n_cpg_min
+            except (AttributeError, KeyError):
+                'Cannot find annotation for n_cpg. Disable n_cpg filtering or' \
+                'add the annotation.'
+
+        if min_delta:
+            betas = self._meth_stats.loc[:, ncls(Stat='beta_value')]
+            abs_deltas = betas.max(axis=1) - betas.min(axis=1)
+            is_ok_df['delta_ok'] = abs_deltas > min_delta
+
+        interval_is_ok = is_ok_df.all(axis=1)
+
+        return self.subset(interval_is_ok)
+
+
+    def subset(self, bool_or_index):
+        if isinstance(bool_or_index, (pd.Series, np.ndarray)):
+            assert is_bool_dtype(bool_or_index)
+        if isinstance(bool_or_index, pd.MultiIndex):
+            assert len(bool_or_index.intersection(self._meth_stats.index)) == len(bool_or_index)
+
+        new_meth_stats = self._meth_stats.loc[bool_or_index, :]
+
+        if self._anno is not None:
+            new_anno = self._anno.loc[bool_or_index, :]
+        else:
+            new_anno = None
+
+        remaining_region_ids = new_meth_stats.index.get_level_values('region_id')
+
+        if self.element_meth_stats is not None:
+            new_element_meth_stats = self.element_meth_stats.loc[
+                                     nidxs(region_id=remaining_region_ids), :]
+        else:
+            new_element_meth_stats = None
+
+        if self.element_anno is not None:
+            new_element_anno = (
+                self.element_anno.loc[nidxs(region_id=remaining_region_ids), :])
+        else:
+            new_element_anno = None
+
+        new_meth_in_regions = MethStats(meth_stats=new_meth_stats,
+                                        anno=new_anno,
+                                        element_meth_stats=new_element_meth_stats,
+                                        element_anno=new_element_anno)
+
+        counts_region_ids = new_meth_in_regions.counts.index.get_level_values('region_id')
+        elem_region_ids = new_meth_in_regions.element_meth_stats.index.get_level_values('region_id').unique()
+        assert counts_region_ids.equals(elem_region_ids)
+
+        return new_meth_in_regions
+
+
     def get_flat_columns(self):
         return ['_'.join(x) for x in self._meth_stats.columns]
 
@@ -734,6 +817,42 @@ class MethStats:
                 ValueError(f'Unknown suffix for {fp}, abort saving')
 
         self._meth_stats.columns = orig_multi_idx
+
+
+    def save_flat_elements_df(self, *filepaths):
+        if self.element_meth_stats is None:
+            raise RuntimeError('Trying to save element meth stats,'
+                               'but they are not available')
+        self._flatten_and_save(self.element_meth_stats, self.element_anno, filepaths)
+
+    def save_flat_intervals_df(self, *filepaths):
+        if self._meth_stats is None:
+            raise RuntimeError('Trying to save interval meth stats,'
+                               'but they are not available')
+        self._flatten_and_save(self._meth_stats, self._anno, filepaths)
+
+
+    def _flatten_and_save(self, stats, anno, filepaths: List[Union[str, Path]]):
+        allowed_file_types = ['.tsv', '.feather', '.p']
+        if not all([Path(fp).suffix in allowed_file_types for fp in filepaths]):
+            raise ValueError(f'Unknown filepath suffix.'
+                             f' Allowed suffices: {allowed_file_types}')
+
+        # will be restored at the end
+        orig_multi_idx = stats.columns
+        stats.columns = self.get_flat_columns()
+        if anno is not None:
+            res = pd.concat([anno, stats], axis=1).reset_index()
+        else:
+            res = stats.reset_index()
+        for fp in filepaths:
+            if fp.endswith('.feather'):
+                res.to_feather(fp)
+            elif fp.endswith('.tsv'):
+                res.to_csv(fp, sep='\t', header=True, index=False)
+            else:  # fp.endswith('.p'):
+                res.to_pickle(fp)
+        stats.columns = orig_multi_idx
 
     # Stat computation methods
     # ==========================================================================
@@ -823,18 +942,18 @@ class MethStats:
                                   'n_cpg': len(df)})
             # Possible problem: what happens if region_id is also in the index?
             new_anno_df = (self
-                         .element_anno
-                         .reset_index()
-                         .groupby('region_id')
-                         .apply(get_region_interval)
-                         )
+                           .element_anno
+                           .reset_index()
+                           .groupby('region_id')
+                           .apply(get_region_interval)
+                           )
             new_anno_df['Chromosome'] = new_anno_df['Chromosome'].astype(
                     self.element_anno.index.get_level_values('Chromosome').dtype)
             new_anno_df.set_index(['Chromosome', 'Start', 'End', 'region_id'], inplace=True)
             new_gr_index = new_anno_df.index
 
         meth_stats_df = (self.element_meth_stats
-                         .groupby(self.element_anno['region_id'])
+                         .groupby('region_id')
                          .sum()
                          .set_axis(new_gr_index, axis=0, inplace=False)
                          )
