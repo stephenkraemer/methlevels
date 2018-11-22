@@ -45,13 +45,12 @@ def NamedIndexSlice(**kwargs):
         slicing_list = [kwargs.get(index_name, slice(None))
                         for index_name in df.index.names]
         for i in reversed(range(len(slicing_list))):
-            if slicing_list[i] == slice(None):
+            if (not isinstance(slicing_list[i], (pd.Index, pd.Series))
+                    and slicing_list[i] == slice(None)):
                 slicing_list.pop(i)
             else:
                 break
-
         return tuple(slicing_list)
-
     return fn
 
 def NamedColumnsSlice(**kwargs):
