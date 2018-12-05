@@ -225,7 +225,8 @@ class MethStats:
             self.element_anno = element_anno.copy()
         else:
             self.element_anno = None
-
+            
+        self._cpg_delta_df = None
 
         self.stats = dict()
 
@@ -786,6 +787,12 @@ class MethStats:
                                         element_meth_stats=new_element_meth_stats,
                                         element_anno=new_element_anno)
 
+        if self.stats:
+            new_stats = {}
+            for name, df in self.stats.items():
+                new_stats[name] = df.loc[bool_or_index, :]
+            new_meth_in_regions.stats = new_stats
+
         counts_region_ids = new_meth_in_regions.counts.index.get_level_values('region_id')
         elem_region_ids = new_meth_in_regions.element_meth_stats.index.get_level_values('region_id').unique()
         assert counts_region_ids.equals(elem_region_ids)
@@ -916,6 +923,56 @@ class MethStats:
             output_name = f'{stat_name}_delta_{root_name}'
         self.stats[output_name] = df.subtract(df.loc[:, root], axis=0)
         return self
+
+    def _get_cpg_delta_df(self, root_subject):
+        if (self._cpg_delta_df is not None
+                and root_subject == self._element_delta_root_subject):
+            return self._cpg_delta_df
+        else:
+            cpg_beta_df = self.element_meth_stats.loc[:, ncls(Stat='beta_value')]
+            cpg_beta_df.columns = cpg_beta_df.columns.droplevel(1)
+            cpg_delta_df = cpg_beta_df.subtract(cpg_beta_df[root_subject], axis=0)
+            self._cpg_delta_df = cpg_delta_df
+            self._element_delta_root_subject = root_subject
+            return cpg_delta_df
+
+    def add_n_relevant_delta_stat(self, root_subject, threshold):
+        cpg_delta_df = self._get_cpg_delta_df(root_subject)
+        n_relevant = (cpg_delta_df.abs().gt(threshold)
+                      .groupby(level='region_id').sum())
+        n_relevant.index = self._meth_stats.index
+        n_relevant_norm = n_relevant.div(n_relevant.max(axis=1), axis=0)
+        root_suffix = f'_root-{root_subject}'
+        self.stats['n-relevant' + root_suffix] = n_relevant
+        self.stats['n-relevant-norm' + root_suffix] = n_relevant_norm
+
+
+    def add_auc_stat(self, root_subject):
+        cpg_delta_df = self._get_cpg_delta_df(root_subject)
+        auc = cpg_delta_df.groupby('region_id').sum()
+        auc.index = self._meth_stats.index
+        auc_norm = auc.div(auc.abs().max(axis=1), axis=0)
+        root_suffix = f'_root-{root_subject}'
+        self.stats['auc' + root_suffix] = auc
+        self.stats['auc-norm' + root_suffix] = auc_norm
+
+
+    def add_robust_max_delta_stat(self, root_subject):
+        cpg_delta_df = self._get_cpg_delta_df(root_subject)
+        cpg_delta_df = cpg_delta_df.copy().iloc[0:1000, :]
+        nlargest = cpg_delta_df.abs().apply(lambda ser: ser.groupby(level='region_id').nlargest(3), axis=0)
+        max_delta_df = cpg_delta_df.loc[nlargest.index.droplevel(0), :].groupby('region_id').mean()
+        self.stats['peak-delta'] = max_delta_df
+        # # this is ~8 times slower
+        # cpg_delta_df = self._get_cpg_delta_df(root_subject)
+        # def get_robust_max_delta(ser):
+        #     sorted_ser = ser.loc[ser.abs().sort_values(ascending=False).index]
+        #     return (sorted_ser
+        #             .groupby(level='region_id')
+        #             .agg(lambda ser: ser.iloc[0:3].mean()))
+        # max_delta_df = cpg_delta_df.apply(get_robust_max_delta, axis=0)
+        # self.stats['peak-delta'] = max_delta_df
+
 
     # element_meth_stats queries
     # ==========================================================================
