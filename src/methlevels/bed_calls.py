@@ -1,5 +1,6 @@
 #-
 import tempfile
+import time
 from io import StringIO
 from itertools import chain
 import joblib
@@ -173,12 +174,19 @@ class BedCalls:
 
         print('Deprecation warning: elements will be changed to True in the future')
 
+        print('Prepare intervals')
+        t1 = time.time()
         assert intervals_df.columns[0] in ['chr', '#chr', 'chromosome', 'Chromosome', 'chrom']
         assert intervals_df.columns[1:3].to_series().str.lower().tolist() == ['start', 'end']
         intervals_df.rename(columns=MethStats.grange_col_name_mapping)
         intervals_gr_unclustered = pr.PyRanges(intervals_df)
-        intervals_gr_clustered = intervals_gr_unclustered.cluster()
+        intervals_gr_clustered = intervals_gr_unclustered
+        # intervals_gr_clustered = intervals_gr_unclustered.cluster()
 
+        print('Done', time.time() - t1)
+
+        print('Retrieve data from file system')
+        t1 = time.time()
         with tempfile.TemporaryDirectory(dir=self.tmpdir) as curr_tmpdir:  # type: ignore
             intervals_bed_fp = Path(curr_tmpdir).joinpath('intervals.bed')
             intervals_gr_clustered.df.iloc[:, 0:3].to_csv(intervals_bed_fp, sep='\t', header=False, index=False)
@@ -191,21 +199,32 @@ class BedCalls:
                 parallel = Parallel(n_cores)
             call_dfs = parallel(delayed(_run_tabix)(bed_path, intervals_bed_fp=intervals_bed_fp, bed_calls=self)
                                 for bed_path in self.metadata_table['bed_path'])
+        print('Done', time.time() - t1)
 
+        print('Merge data')
+        t1 = time.time()
         calls_merged = pd.concat(call_dfs, axis=1, keys=self.metadata_table['sample_id'])
         calls_merged.columns = ['_'.join(t) for t in calls_merged.columns]
         calls_merged = pd.concat([index_df, calls_merged], axis=1)
         calls_merged_gr = pr.PyRanges(calls_merged)  # unordered categorical
+        print('Done', time.time() - t1)
 
+        print('Create flat dataframe')
+        t1 = time.time()
         annotated = calls_merged_gr.join(intervals_gr_unclustered)
         flat_df = annotated.df.rename(columns={'Start_b': 'Region start', 'End_b': 'Region end'})
         # pyranges currently returns unordered categorical
         flat_df['Chromosome'] = flat_df['Chromosome'].cat.set_categories(
                 index_df['Chromosome'].unique(), ordered=True)
+        print('Done', time.time() - t1)
+
+        print('Create methlevels')
+        t1 = time.time()
         meth_levels = MethStats.from_flat_dataframe(flat_df, pop_order=self.pop_order,
                                                     elements=elements,
                                                     additional_index_cols=additional_index_cols,
                                                     drop_additional_index_cols=drop_additional_index_cols)
+        print('Done', time.time() - t1)
 
         return meth_levels
 
