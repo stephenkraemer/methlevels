@@ -179,7 +179,7 @@ class BedCalls:
         t1 = time.time()
         assert intervals_df.columns[0] in ['chr', '#chr', 'chromosome', 'Chromosome', 'chrom']
         assert intervals_df.columns[1:3].to_series().str.lower().tolist() == ['start', 'end']
-        intervals_df.rename(columns=MethStats.grange_col_name_mapping)
+        intervals_df = intervals_df.rename(columns=MethStats.grange_col_name_mapping)
         intervals_gr_unclustered = pr.PyRanges(intervals_df)
         intervals_gr_clustered = intervals_gr_unclustered
         # TODO reactivate this
@@ -223,6 +223,10 @@ class BedCalls:
 
         print('Create methlevels')
         t1 = time.time()
+        # TODO: I had a case where start and end was i4, therefore added this type conversion as a quickfix
+        #       follow up on this
+        flat_df['Start'] = flat_df['Start'].astype('i8')
+        flat_df['End'] = flat_df['End'].astype('i8')
         meth_levels = MethStats.from_flat_dataframe(flat_df, pop_order=self.pop_order,
                                                     elements=elements,
                                                     additional_index_cols=additional_index_cols,
