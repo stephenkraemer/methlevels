@@ -125,7 +125,8 @@ class BedCalls:
             index_df['int_index'] = range(index_df.shape[0])
             assert not index_df.has_duplicated_coord()
 
-            cpg_index_gr = pr.PyRanges(index_df).join(intervals_gr)
+            print('WARNING: I have hardcoded strandedness to False for now')
+            cpg_index_gr = pr.PyRanges(index_df).join(intervals_gr, strandedness=False)
 
             call_dfs = Parallel(n_cores)(
                     delayed(_run_tabix_agg)(bed_path,
@@ -181,6 +182,7 @@ class BedCalls:
         intervals_df.rename(columns=MethStats.grange_col_name_mapping)
         intervals_gr_unclustered = pr.PyRanges(intervals_df)
         intervals_gr_clustered = intervals_gr_unclustered
+        # TODO reactivate this
         # intervals_gr_clustered = intervals_gr_unclustered.cluster()
 
         print('Done', time.time() - t1)
@@ -211,7 +213,8 @@ class BedCalls:
 
         print('Create flat dataframe')
         t1 = time.time()
-        annotated = calls_merged_gr.join(intervals_gr_unclustered)
+        print('WARNING: I have hard-coded strandedness to False for now')
+        annotated = calls_merged_gr.join(intervals_gr_unclustered, strandedness=False)
         flat_df = annotated.df.rename(columns={'Start_b': 'Region start', 'End_b': 'Region end'})
         # pyranges currently returns unordered categorical
         flat_df['Chromosome'] = flat_df['Chromosome'].cat.set_categories(
