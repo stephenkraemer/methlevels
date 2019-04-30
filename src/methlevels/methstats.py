@@ -431,6 +431,45 @@ class MethStats:
         return tidy_df, tidy_anno
 
 
+    def rename(self, **kwargs):
+        """ Rename operation on all contained dfs
+
+        Args:
+            kwargs: passed to pd.DataFrame.rename. The inplace argument is controlled by the function and ignored if given.
+
+        Returns:
+            self
+        """
+
+        if 'inplace' in kwargs:
+            kwargs.pop('inplace')
+        dfs = [
+            *self.stats.values(),
+            self._meth_stats,
+            self._anno,
+            self.element_meth_stats,
+            self.element_anno,
+        ]
+        for df in dfs:
+            df.rename(**kwargs, inplace=True)
+        return self
+
+    def apply_to_all_dfs(self, fn: Callable, stat_dfs=True, anno_dfs=True):
+        if self._meth_stats is not None:
+            self._meth_stats = fn(self._meth_stats)
+        if self.element_meth_stats is not None:
+            self.element_meth_stats = fn(self.element_meth_stats)
+        for k, v in self.stats.items():
+            self.stats[k] = fn(v)
+        if anno_dfs:
+            if self._anno is not None:
+                self._anno = fn(self._anno)
+            if self.element_anno is not None:
+                self.element_anno = fn(self.element_anno)
+        return self
+
+
+
     def add_beta_values(self):
         """will add new or overwrite existing beta values
 

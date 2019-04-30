@@ -1,4 +1,13 @@
-**__pycache__/
 src/methlevels.egg-info/
-**.mypy_cache
-**.pytest_cache
+.idea/
+*.egg-info/
+**/__pycache__/
+**/.pytest_cache/
+doc/_build
+build
+dist/
+**/.#*
+**/.ipynb_checkpoints
+**/__pycache__
+**/.mypy_cache/
+.vscode/

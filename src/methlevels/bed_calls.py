@@ -99,7 +99,25 @@ class BedCalls:
                 zip(self.stat_col_order_output, self.stat_col_index_input), key=lambda t: t[1])]
 
     def aggregate(self, intervals_df: pd.DataFrame, n_cores: int, subjects=None) -> MethStats:
+        """
 
+        Args:
+            intervals_df: must contain columns Chromosome, Start, End. Arbitrary index allowed (is ignored, the resulting MethStats will have Chromosome, Start, End as index cols). Intervals may be empty (not contain any CpGs). Intervals may overlap.
+            n_cores: parallel computation if n_cores > 1
+            subjects: restrict computation to subjects. subjects are automatically re-ordered according to their appearance in pop_order.
+
+        Returns:
+            MethStats object with per-interval counts and beta values
+        """
+
+        # Assert that intervals_df contains the GRanges columns
+        assert all(intervals_df.columns[0:3] == ['Chromosome', 'Start', 'End'])
+        # Assert that intervals_df is sorted
+        assert intervals_df.index.equals(intervals_df.sort_values(['Chromosome', 'Start', 'End']).index)
+
+        # Note: intervals may overlap, intervals may not cover any CpGs, we must account for this!
+
+        # Restrict to subjects, maintaining the order of appearance in self.pop_order
         if subjects:
             pop_order = [p for p in self.pop_order if p in subjects]
             metadata_table = self.metadata_table.query('Subject in @subjects')
@@ -107,28 +125,44 @@ class BedCalls:
             pop_order = self.pop_order
             metadata_table = self.metadata_table
 
-        assert intervals_df.columns[0] in ['chr', '#chr', 'chromosome', 'Chromosome', 'chrom']
-        assert intervals_df.columns[1:3].to_series().str.lower().tolist() == ['start', 'end']
-
+        # reset intervals_df index. the intervals df will be merged with the
+        # meth stats df computed below. Merging happens on the index, which contains
+        # region uids. Note that some intervals may not contain CpGs, so they will
+        # not be present in the meth stats df
         intervals_df = intervals_df.copy()
-        intervals_df = intervals_df.rename(columns=MethStats.grange_col_name_mapping)
+        # Required for fix for current PyRanges issue, which changes the dtypes of the original dataframe
+        # (https://github.com/biocore-ntnu/pyranges/issues/6)
+        orig_dtypes = intervals_df.dtypes
         intervals_df['uid'] = range(intervals_df.shape[0])
+        intervals_df = intervals_df.set_index('uid', drop=False)
         intervals_gr = pr.PyRanges(intervals_df)
+
+        # Clustered version of the intervals, needed to retrieve the unique CpG positions
+        # covered by the intervals with tabix
         intervals_gr_clustered = intervals_gr.cluster()
 
         with tempfile.TemporaryDirectory(dir=self.tmpdir) as curr_tmpdir:  #type: ignore
 
+            # Retrieve unique CpG positions in sorting order with tabix
+            # query regions must not overlap for use with tabix
             intervals_bed_fp = Path(curr_tmpdir).joinpath('intervals.bed')
             intervals_gr_clustered.df.iloc[:, 0:3].to_csv(intervals_bed_fp, sep='\t', header=False, index=False)
-
             index_df = self._get_index_df(intervals_bed_fp)
             index_df['int_index'] = range(index_df.shape[0])
             assert not index_df.has_duplicated_coord()
 
+            # Join unique CpG positions with the intervals which may contain them
+            # This is done on the original intervals set, which may contain both overlapping
+            # intervals as well as empty intervals. Empty intervals will be discarded by this
+            # step, overlapping intervals lead to multiple rows per cpg
+            # the intervals_gr contains an interval UID, which allows grouping CpGs by interval later on
             print('WARNING: I have hardcoded strandedness to False for now')
             cpg_index_gr = pr.PyRanges(index_df).join(intervals_gr, strandedness=False)
 
-            call_dfs = Parallel(n_cores)(
+            # Use tabix to retrieve the meth stats for each unique CpG
+            # Then use the int_index and uid columns to first align the unique CpG meth stats
+            # with the cpg-intervals-join dataframe, and then group by region id
+            call_dfs = Parallel(n_cores, backend='multiprocessing', max_nbytes=None)(
                     delayed(_run_tabix_agg)(bed_path,
                                             intervals_bed_fp=intervals_bed_fp,
                                             groupby_seq=cpg_index_gr.df['uid'].values,
@@ -136,14 +170,26 @@ class BedCalls:
                                             bed_calls=self)
                     for bed_path in metadata_table['bed_path'])
 
+        # This merges on the index, which must be the region UID in both cases
+        # The inner join discards empty intervals
+        # FIX for current PyRanges issue, which changes the dtypes of the original dataframe
+        # (https://github.com/biocore-ntnu/pyranges/issues/6)
+        intervals_df = intervals_df.astype(orig_dtypes)
         calls_merged = pd.concat([intervals_df] + call_dfs, axis=1,
-                                 keys=chain(['region'], metadata_table['sample_id']))
+                                 keys=chain(['region'], metadata_table['sample_id']),
+                                 join='inner')
+
+        # Empty intervals should have been discarded. Just a defensive check.
+        assert calls_merged.loc[:, idxs[:, 'n_total']].isna().any(axis=1).sum() == 0
+
+        n_intervals_discarded = intervals_df.shape[0] - calls_merged.shape[0]
+        if n_intervals_discarded:
+            print(f'WARNING: {n_intervals_discarded} empty intervals have been discarded')
 
         new_idx = ['_'.join(t) for t in calls_merged.columns]
         new_idx[0:3] = self.grange_col_names
         calls_merged.columns = new_idx
 
-        calls_merged = calls_merged.rename(columns={'Chromosome': 'chr', 'Start': 'start', 'End': 'end'})
         meth_stats = MethStats.from_flat_dataframe(calls_merged, pop_order=pop_order)
 
         return meth_stats
@@ -181,9 +227,10 @@ class BedCalls:
         assert intervals_df.columns[1:3].to_series().str.lower().tolist() == ['start', 'end']
         intervals_df = intervals_df.rename(columns=MethStats.grange_col_name_mapping)
         intervals_gr_unclustered = pr.PyRanges(intervals_df)
-        intervals_gr_clustered = intervals_gr_unclustered
+        # intervals_gr_clustered = intervals_gr_unclustered
         # TODO reactivate this
-        # intervals_gr_clustered = intervals_gr_unclustered.cluster()
+        print('clustering activated again')
+        intervals_gr_clustered = intervals_gr_unclustered.cluster()
 
         print('Done', time.time() - t1)
 

@@ -122,8 +122,8 @@ def test_intersect(tmpdir, worker_pool):
         assert_frame_equal(meth_stats.df, expected_df)
 
         expected_anno = pd.DataFrame({'Anno1': list('aababababbccd')}, index=expected_df.index)
-        expected_anno['Region start'] = expected_anno['Anno1'].map({'a': 31, 'b': 40, 'c': 120, 'd': 20})
-        expected_anno['Region end'] = expected_anno['Anno1'].map({'a': 60, 'b': 70, 'c': 131, 'd': 30})
+        expected_anno['Region start'] = expected_anno['Anno1'].map({'a': 31, 'b': 40, 'c': 120, 'dmr_regions': 20})
+        expected_anno['Region end'] = expected_anno['Anno1'].map({'a': 60, 'b': 70, 'c': 131, 'dmr_regions': 30})
         expected_anno = expected_anno[['Region start', 'Region end', 'Anno1']]
 
         assert_frame_equal(meth_stats.anno, expected_anno)

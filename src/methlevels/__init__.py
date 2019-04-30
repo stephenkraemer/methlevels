@@ -20,3 +20,5 @@ from .methstats import MethStats
 from .bed_calls import BedCalls
 from .plots import DMRPlot
 from .dmr_intervals import DMRIntervals
+
+import methlevels.recipes
