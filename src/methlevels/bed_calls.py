@@ -190,6 +190,10 @@ class BedCalls:
         new_idx[0:3] = self.grange_col_names
         calls_merged.columns = new_idx
 
+        # pyranges bug: changes dtypes
+        calls_merged['Start'] = calls_merged['Start'].astype('i8')
+        calls_merged['End'] = calls_merged['End'].astype('i8')
+
         meth_stats = MethStats.from_flat_dataframe(calls_merged, pop_order=pop_order)
 
         return meth_stats
