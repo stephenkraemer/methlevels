@@ -139,7 +139,7 @@ class BedCalls:
 
         # Clustered version of the intervals, needed to retrieve the unique CpG positions
         # covered by the intervals with tabix
-        intervals_gr_clustered = intervals_gr.cluster()
+        intervals_gr_clustered = intervals_gr.merge()
 
         with tempfile.TemporaryDirectory(dir=self.tmpdir) as curr_tmpdir:  #type: ignore
 
@@ -234,7 +234,7 @@ class BedCalls:
         # intervals_gr_clustered = intervals_gr_unclustered
         # TODO reactivate this
         print('clustering activated again')
-        intervals_gr_clustered = intervals_gr_unclustered.cluster()
+        intervals_gr_clustered = intervals_gr_unclustered.merge()
 
         print('Done', time.time() - t1)
 
