@@ -14,11 +14,28 @@ Available plots
 - bar plot: row-facetted by subject, optionally with smoothed lines
 - grid plot: grid (subjects, cpgs), each CpG is a circle, the methylation level is color-encoded
 
-Input data format
------------------
+Input
+-----
 All axes level plot functions take tidy beta_values, ie a long-format dataframe with columns Chromosome Start End subject beta_value, which specifies the CpG methylation for all subjects in the region to be plotted.
 
 The runner function `create_region_plots` takes wide-format beta_values (cpgs, samples). This is more efficient for large datasets.
+
+Shared args between all Axes level functions
+--------------------------------------------
+The axes level functions share a common 'base interface', and have many additional function specific params
+beta_values
+region_properties
+title
+region_boundaries
+
+Next steps
+----------
+
+- the region boundary in the line plot should go from bottom to top of the axes (currently, there is some padding around the [0,1] ylims, which is not covered by the rectangle patch
+- the bar plot should have cpg position markers in case the beta value is 0 (and thus no bar is shown)
+- allow highlighting of multiple ROIs in the same plot (currenly only a single ROI is highlighted)
+- prior to spline computation, the _smoothed_monotonic_spline function fills NA values with linear interpolation where possible, and extrapolates by using the nearest defined value. Perhaps this should be improved?
+
 """
 
 from copy import copy
@@ -159,15 +176,17 @@ def grid_plot(
     # Add colorbar to figure, specify target axes for constrained_layout
     if fig is not None:
         cbar = fig.colorbar(sc, ax=ax, **cbar_args, label=cbar_title)
-        cbar.ax.tick_params(axis="y", length=0)
+        cbar.outline.set_linewidth(0.5)
+        cbar.ax.tick_params(length=1.5, width=0.5, which="both", axis="both")
 
 
 def line_plot(
     beta_values: pd.DataFrame,
     ax: Axes,
-    subject_order: Optional[List[str]] = None,
+    legend_order: Optional[List[str]] = None,
     palette: Union[str, Dict[str, str]] = "Set1",
     dashes: Optional[Dict] = None,
+    seaborn_lineplot_args: Optional[Dict] = None,
     region_properties: Optional[pd.Series] = None,
     region_boundaries: Optional[str] = "box",
     region_boundaries_kws: Optional[Dict] = None,
@@ -187,9 +206,10 @@ def line_plot(
         beta_values: long format df, columns: Chromosome Start End subject beta_value [other_col1, ...].
         Columns is a scalar Index of subject names. If columns is not categorical, subject_order must be given.
         ax: single Axes to plot on
-        subject_order: required if beta_values.columns is not categorical, to control subject plot order
+        legend_order: required if beta_values.columns is not categorical, to control the legend entry order
         palette: either a palette name known to seaborn.color_palette or a dict mapping subject -> RGB color for all subjects
         dashes: optional Dict subject -> linestyle. Currently ignored, will be implemented later.
+        seaborn_lineplot_args: further args for seaborn.lineplot. Note that seaborn.lineplot() also passes **kwargs to plt.plot
         region_properties: Series describing the ROI, with keys Chromosome Start End [other cols]. The plot may show flanks surrounding the ROI, and thus beta_values may contain CpGs outside of the ROI. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
         region_boundaries: if not None, mark region boundaries in the plot. Possible values: 'box' -> draw a rectangle patch around the ROI. 'vlines': draw vertical lines
         region_boundaries_kws: passed to the function creating the region boundary visualization, eg patches.Rectangle or Axes.axvline
@@ -207,12 +227,17 @@ def line_plot(
     merged_region_boundary_kws = _process_region_boundary_params(
         region_boundaries, region_boundaries_kws, region_properties
     )
-    beta_values = _prepare_beta_values(beta_values, subject_order)
-    cpg_marks_plot_kws_base = dict(linewidth=1, color="gray", alpha=1, linestyle="--")
-    if cpg_marks_plot_kws is not None:
-        cpg_marks_plot_kws_base.update(cpg_marks_plot_kws)
+    beta_values = _prepare_beta_values(beta_values, legend_order)
+    if cpg_marks == "vlines":
+        cpg_marks_plot_kws_merged = copy(_REGION_BOUNDARY_LINE_BASE_PARAMS)
+    if cpg_marks == "points":
+        cpg_marks_plot_kws_merged = dict(s=30, marker=".")
+    if cpg_marks_plot_kws is not None and cpg_marks in ["vlines", "points"]:
+        cpg_marks_plot_kws_merged.update(cpg_marks_plot_kws)
     if dashes is None:
         dashes = False
+    if seaborn_lineplot_args is None:
+        seaborn_lineplot_args = {}
 
     # x limits and ticks
     # Without padding, the boundary cpgs may be plotted only partially
@@ -244,10 +269,14 @@ def line_plot(
         x="Start",
         y="beta_value",
         hue="subject",
+        style="subject",
+        # style_order=legend_order,
+        # hue_order=legend_order,
         palette=palette,
         dashes=dashes,
         ax=ax,
         data=beta_value_lines,
+        **seaborn_lineplot_args,
     )
 
     # Make legend created by seaborn nicer
@@ -262,9 +291,9 @@ def line_plot(
 
     # Mark CpG positions with vlines or with markers in the line plot
     if cpg_marks == "vlines":
-        first_subject = subject_order[0]
+        first_subject = legend_order[0]
         for pos in beta_values.query("subject == @first_subject")["Start"]:
-            ax.axvline(pos, **cpg_marks_plot_kws_base)
+            ax.axvline(pos, **cpg_marks_plot_kws_merged)
     elif cpg_marks == "points":
         sns.scatterplot(
             x="Start",
@@ -274,6 +303,7 @@ def line_plot(
             ax=ax,
             data=beta_values,
             legend=None,
+            **cpg_marks_plot_kws_merged,
         )
 
     # Visualize region boundaries with rectangle patch or with vlines
@@ -306,7 +336,7 @@ def bar_plot(
     title: Optional[str] = None,
     ylabel: str = "% Methylation",
     xlabel: str = "Position [bp]",
-    region_boundaries: Optional[str] = None,
+    region_boundaries: Optional[str] = "box",
     region_boundaries_kws: Optional[Dict] = None,
     bp_padding=20,
 ) -> None:
@@ -438,10 +468,12 @@ def create_region_plots(
     regions: pd.DataFrame,
     output_dir,
     plot_types: List[str],
+    title_prefix: Optional[str] = None,
     title_col: Optional[str] = None,
     filetypes: Optional[List[str]] = None,
     slack_abs: int = 0,
     subject_order: Optional[List[str]] = None,
+    legend_order: Optional[List[str]] = None,
     show_title=True,
     grid_kwargs: Optional[Dict] = None,
     line_kwargs: Optional[Dict] = None,
@@ -450,6 +482,7 @@ def create_region_plots(
     plot_width_in: float = 8 / 2.54,
     line_plot_height_in: float = 8 / 2.54,
     grid_plot_line_height_in: Optional[float] = None,
+    dpi: int = 180,
 ) -> None:
     """Runner function which creates region plots of different kinds for multiple ROIs
 
@@ -461,7 +494,8 @@ def create_region_plots(
         filetypes: list of filetypes, defaults to ['png', 'pdf']
         title_col: name of column in regions df, if given, files are saved as {title_col[region_idx]}_{Chr:Start-End}, otherwise, only the coordinates are used
         slack_abs: enlarge ROI to both sides by slack_abs bp
-        subject_order: must be given if the subject index is not categorical
+        subject_order: must be given if the subject index is not categorical and if bar or grid plot is used
+        legend_order: must be given if the subject index is not categorical and if line plots are used
         plot_types: one or more from ['grid', 'line', 'bar']
         show_title: whether to pass the title to the plotting functions
         grid_kwargs: passed to ml.grid_plot
@@ -500,6 +534,7 @@ def create_region_plots(
 
     # Create plots defined by /plot_type/ for each ROI in /regions/
     for idx, region_ser in regions.iterrows():
+        print(region_ser)
 
         # Retrieve the index df [Chromosome Start End element_idx] for all CpGs in the current ROI
         # The /element_idx/ gives the integer index of the corresponding CpGs in the /beta_values/ df
@@ -523,18 +558,18 @@ def create_region_plots(
 
         # Determine the ROI title, which is used in the filename, and optionally as plot title
         # The ROI title specifies the genomic interval, and optionally the value in /title_col/ (from regions DF)
-        curr_title = region_ser[title_col] + " | " if title_col else ""
+
+        curr_title = title_prefix + "_" if title_prefix else ""
+        curr_title += region_ser[title_col] + " | " if title_col else ""
         curr_title += (
             f"{region_ser['Chromosome']}_{region_ser['Start']}-{region_ser['End']}"
         )
-
 
         # Now create all plots specified in /plot_types/
 
         # Args shared by all axes-level plot functions
         common_plot_args = dict(
             beta_values=plot_beta_values,
-            subject_order=subject_order,
             region_properties=region_ser,
             title=curr_title if show_title else None,
         )
@@ -557,8 +592,15 @@ def create_region_plots(
                     plot_width_in + estimated_colorbar_size,
                     grid_plot_line_height_in * len(subject_order) + 2 / 2.54,
                 ),
+                dpi=dpi,
             )
-            grid_plot(**common_plot_args, ax=ax, fig=fig, **grid_kwargs)
+            grid_plot(
+                **common_plot_args,
+                ax=ax,
+                fig=fig,
+                subject_order=subject_order,
+                **grid_kwargs,
+            )
 
             # Save
             for suffix in filetypes:
@@ -580,13 +622,16 @@ def create_region_plots(
                 1,
                 constrained_layout=True,
                 figsize=(plot_width_in + estimated_legend_size, line_plot_height_in),
+                dpi=dpi,
             )
-            line_plot(**common_plot_args, ax=ax, **line_kwargs)
+            line_plot(
+                **common_plot_args, ax=ax, **line_kwargs, legend_order=legend_order
+            )
 
             # Save
             for suffix in filetypes:
                 fp = (
-                        output_dir + f"/{curr_title.replace(' | ', '_')}_kind-line.{suffix}"
+                    output_dir + f"/{curr_title.replace(' | ', '_')}_kind-line.{suffix}"
                 )
                 print("Saving", fp)
                 fig.savefig(fp)
@@ -599,17 +644,20 @@ def create_region_plots(
                 1,
                 constrained_layout=True,
                 figsize=(plot_width_in, bar_plot_facet_height_in * len(subject_order)),
+                dpi=dpi,
             )
-            bar_plot(**common_plot_args, axes=axes, **bar_kwargs)
+            bar_plot(
+                **common_plot_args, axes=axes, **bar_kwargs, subject_order=subject_order
+            )
 
             # Save
             for suffix in filetypes:
-                fp = (
-                        output_dir + f"/{curr_title.replace(' | ', '_')}_kind-bar.{suffix}"
-                )
+                fp = output_dir + f"/{curr_title.replace(' | ', '_')}_kind-bar.{suffix}"
                 print("Saving", fp)
                 fig.savefig(fp)
 
+    # Avoid display of figures in notebooks
+    plt.close("all")
 
 
 def _process_region_boundary_params(
@@ -657,6 +705,17 @@ def _smoothed_monotonic_spline(beta_value_df: pd.DataFrame) -> pd.DataFrame:
         columns: Start, subject, beta_value
     """
 
+    # TODO: improve
+    # fill nan positions with linear intrapolation (and extrapolation if necessary)
+    # note that extrapolation with scipy.interpolate.interp1d only fills the closest default value
+    if beta_value_df["beta_value"].isna().any():
+        print(
+            f"WARNING: input data contain NA values for {beta_value_df.name}. Using 1D interpolation prior to spline computation. Especially if NAs are present at the region boundaries, this can distort the profile."
+        )
+        beta_value_df["beta_value"] = beta_value_df["beta_value"].interpolate(
+            "linear", fill_value="extrapolate"
+        )
+
     # CpG positions are the observed /xin/ positions used to construct the spline
     xin = beta_value_df["Start"].values
     spline = interpolate.PchipInterpolator(
@@ -673,11 +732,17 @@ def _smoothed_monotonic_spline(beta_value_df: pd.DataFrame) -> pd.DataFrame:
     beta_smoothed = convolve(beta_pred, gaussian_kernel, boundary="extend")
 
     return pd.DataFrame(
-        dict(Start=xout, beta_value=beta_smoothed, subject=beta_value_df.iloc[0]["subject"])
+        dict(
+            Start=xout,
+            beta_value=beta_smoothed,
+            subject=beta_value_df.iloc[0]["subject"],
+        )
     )
 
 
-def _prepare_beta_values(beta_values: pd.DataFrame, subject_order: List[str]) -> pd.DataFrame:
+def _prepare_beta_values(
+    beta_values: pd.DataFrame, subject_order: List[str]
+) -> pd.DataFrame:
     """Convert beta_values['subject'] into Categorical with subject_order if necessary
 
     Args:
@@ -691,8 +756,8 @@ def _prepare_beta_values(beta_values: pd.DataFrame, subject_order: List[str]) ->
     beta_values = beta_values.copy()
 
     # Assert that this is a tidy, ROI-specific beta value df
-    assert beta_values['Chromosome'].nunique() == 1
-    assert 'subject' in beta_values
+    assert beta_values["Chromosome"].nunique() == 1
+    assert "subject" in beta_values
 
     if beta_values["subject"].dtype.name == "category":
         if subject_order is not None and (
@@ -709,6 +774,8 @@ def _prepare_beta_values(beta_values: pd.DataFrame, subject_order: List[str]) ->
     # Sorting by Start is sufficient, because we are looking at a set of CpGs on the same Chromosome
     beta_values = beta_values.sort_values(["subject", "Start"])
     return beta_values
+
+
 
 
 # ===================== DEPRECATED =============================================
