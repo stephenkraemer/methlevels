@@ -11,6 +11,7 @@ from subprocess import run, PIPE
 from typing import List, Optional
 
 import pandas as pd
+import numpy as np
 idxs = pd.IndexSlice
 import pyranges as pr
 
@@ -199,29 +200,41 @@ class BedCalls:
         return meth_stats
 
 
-    def intersect(self, intervals_df: pd.DataFrame, n_cores: int = None,
-                  additional_index_cols: Optional[List[str]] = None,
-                  elements: bool = False,
-                  drop_additional_index_cols=True, parallel: joblib.Parallel = None) -> MethStats:
+    def intersect(
+            self,
+            intervals_df: pd.DataFrame,
+            n_cores: int = None,
+            additional_index_cols: Optional[List[str]] = None,
+            elements: bool = False,
+            drop_additional_index_cols=True,
+            parallel: joblib.Parallel = None
+    ) -> MethStats:
         """Retrieve individual motifs, annotated with their parent interval
         
         Args:
+            intervals_df: must start with Chromosome, Start, End, region_id.
+                Must be sorted by grange cols. region_id most be monotonic increasing.
+                Chromosome column should be categorical of strings. If it is only str dtype,
+                it will be (internally) converted to categorical, using the given order of chromosomes.
+                The original dataframe remains unchanged.
+                Optionally, annotation columns may be added to the intervals df.
+                They will be added to the results (available through anno df of
+                the returned MethStats object).
+                If the interval df contains duplicate genomic intervals, it must contain
+                one or more additional index variables, so that the complete index
+                if fully unique. These additional index variables must be distinguished
+                from annotation variables by passing them via /additional_index_cols/
+            elements: whether to save the result to the elements slots of the resulting MethStats object.
+                This will almost always be wanted - probably remove this option later.
             n_cores: ignored if parallel is specified
-            additional_index_cols: passed on the MethStats.from_flat_dataframe
+            parallel: alternative to n_cores
+            additional_index_cols: ['region_id] + additional_index_cols will be passed on the MethStats.from_flat_dataframe argument of the same name.
             drop_additional_index_cols: passed on the MethStats.from_flat_dataframe
 
-        Optionally, annotation columns may be added to the intervals df.
-        They will be added to the results (available through anno df of
-        the returned MethStats object).
-
-        Chromosome categories are taken from interval df, with order
-
-        If the interval df contains duplicate genomic intervals, it must contain
-        one or more additional index variables, so that the complete index
-        if fully unique. These additional index variables must be distinguished
-        from annotation variables by passing them via /additional_index_cols/
 
         """
+
+        print('RELOADED')
 
         print('Deprecation warning: elements will be changed to True in the future')
 
@@ -230,6 +243,22 @@ class BedCalls:
         assert intervals_df.columns[0] in ['chr', '#chr', 'chromosome', 'Chromosome', 'chrom']
         assert intervals_df.columns[1:3].to_series().str.lower().tolist() == ['start', 'end']
         intervals_df = intervals_df.rename(columns=MethStats.grange_col_name_mapping)
+        assert intervals_df['Chromosome'].is_monotonic_increasing
+        assert intervals_df.groupby('Chromosome')['Start'].apply(lambda ser: ser.is_monotonic_increasing).all()
+        assert intervals_df.groupby('Chromosome')['End'].apply(lambda ser: ser.is_monotonic_increasing).all()
+        assert intervals_df['region_id'].is_monotonic_increasing
+        if intervals_df['Chromosome'].dtype.name == 'category':
+            chrom_cat_dtype = intervals_df['Chromosome'].dtype
+        else:
+            chrom_cat_dtype = pd.CategoricalDtype(
+                    categories=intervals_df['Chromosome'].unique(),
+                    ordered=True
+            )
+            intervals_df = (
+                intervals_df
+                    .copy()
+                    .assign(Chromosome=intervals_df['Chromosome'].astype(chrom_cat_dtype))
+            )
         intervals_gr_unclustered = pr.PyRanges(intervals_df)
         # intervals_gr_clustered = intervals_gr_unclustered
         # TODO reactivate this
@@ -268,8 +297,8 @@ class BedCalls:
         annotated = calls_merged_gr.join(intervals_gr_unclustered, strandedness=False)
         flat_df = annotated.df.rename(columns={'Start_b': 'Region start', 'End_b': 'Region end'})
         # pyranges currently returns unordered categorical
-        flat_df['Chromosome'] = flat_df['Chromosome'].cat.set_categories(
-                index_df['Chromosome'].unique(), ordered=True)
+        flat_df['Chromosome'] = flat_df['Chromosome'].astype(chrom_cat_dtype)
+        flat_df = flat_df.sort_values(['Chromosome', 'Start', 'End']).reset_index(drop=True)
         print('Done', time.time() - t1)
 
         print('Create methlevels')
@@ -278,6 +307,8 @@ class BedCalls:
         #       follow up on this
         flat_df['Start'] = flat_df['Start'].astype('i8')
         flat_df['End'] = flat_df['End'].astype('i8')
+        assert np.all(flat_df['region_id'].unique() == intervals_df['region_id'].to_numpy())
+
         meth_levels = MethStats.from_flat_dataframe(flat_df, pop_order=self.pop_order,
                                                     elements=elements,
                                                     additional_index_cols=additional_index_cols,

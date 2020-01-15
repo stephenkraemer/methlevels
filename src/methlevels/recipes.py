@@ -60,6 +60,15 @@ def compute_meth_stats(
 
     output_paths = _get_output_paths(result_dir, result_name_prefix, result_name_suffix)
 
+    assert intervals.columns[0:3].equals(pd.Index(['Chromosome', 'Start', 'End']))
+    assert 'region_id' in intervals.columns
+    if additional_index_cols is None:
+        additional_index_cols = ['region_id']
+    elif isinstance(additional_index_cols, list):
+        additional_index_cols = ['region_id'] + additional_index_cols
+    else:
+        raise TypeError()
+
     print("Calculating Replicate-level MethStats")
     t1 = time.time()
     meth_stats_replevel_v1 = bed_calls.intersect(

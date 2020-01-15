@@ -1040,19 +1040,26 @@ class MethStats:
             new_anno_df = (self
                            .element_anno
                            .reset_index()
-                           .groupby('region_id')
+                           .groupby('region_id', sort=True)
                            .apply(get_region_interval)
                            )
             new_anno_df['Chromosome'] = new_anno_df['Chromosome'].astype(
                     self.element_anno.index.get_level_values('Chromosome').dtype)
             new_anno_df.set_index(['Chromosome', 'Start', 'End', 'region_id'], inplace=True)
+            orig_index = new_anno_df.index.copy()
+            new_anno_df = new_anno_df.sort_index()
+            assert orig_index.equals(new_anno_df.index)
+
             new_gr_index = new_anno_df.index
+            assert new_gr_index.get_level_values('region_id').is_monotonic
 
         meth_stats_df = (self.element_meth_stats
-                         .groupby('region_id')
+                         .groupby('region_id', sort=True)
                          .sum()
-                         .set_axis(new_gr_index, axis=0, inplace=False)
                          )
+        assert meth_stats_df.index.equals(new_gr_index.get_level_values('region_id'))
+        meth_stats_df = meth_stats_df.set_axis(new_gr_index, axis=0, inplace=False)
+
         # noinspection PyAttributeOutsideInit
         self.counts = meth_stats_df
 
