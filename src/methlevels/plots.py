@@ -56,6 +56,8 @@ idxs = pd.IndexSlice
 import scipy.interpolate as interpolate
 import scipy.stats
 from astropy.convolution import convolve
+from statsmodels.nonparametric.smoothers_lowess import lowess
+from scipy.signal import medfilt
 import pyranges as pr
 
 from methlevels import MethStats
@@ -71,7 +73,7 @@ def grid_plot(
     ax: Axes,
     fig: Figure,
     cmap="magma",
-    region_properties: Optional[pd.Series] = None,
+    region_properties: Optional[pd.DataFrame] = None,
     region_boundaries: bool = True,
     markersize: int = 50,
     subject_order: Optional[List[str]] = None,
@@ -160,8 +162,9 @@ def grid_plot(
 
     # Draw vlines to mark ROI boundaries
     if region_boundaries:
-        for pos in region_properties[["Start", "End"]]:
-            ax.axvline(pos, color="gray", linewidth=0.5, linestyle="--")
+        for idx, region_properties_ser in region_properties.iterrows():
+            for pos in region_properties_ser[["Start", "End"]]:
+                ax.axvline(pos, color="gray", linewidth=0.5, linestyle="--")
 
     # Draw colored rectangle patches around subjects of interest
     if highlighted_subjects is not None:
@@ -187,7 +190,7 @@ def line_plot(
     palette: Union[str, Dict[str, str]] = "Set1",
     dashes: Optional[Dict] = None,
     seaborn_lineplot_args: Optional[Dict] = None,
-    region_properties: Optional[pd.Series] = None,
+    region_properties: Optional[pd.DataFrame] = None,
     region_boundaries: Optional[str] = "box",
     region_boundaries_kws: Optional[Dict] = None,
     bp_padding=20,
@@ -199,6 +202,7 @@ def line_plot(
     ylabel: str = "Subject",
     xlabel: str = "% Methylation",
     legend_title: str = "",
+    smoother='monotonic_spline',
 ) -> None:
     """Interpolate, smooth and draw methylation profile lines onto an Axes
 
@@ -210,7 +214,7 @@ def line_plot(
         palette: either a palette name known to seaborn.color_palette or a dict mapping subject -> RGB color for all subjects
         dashes: optional Dict subject -> linestyle. Currently ignored, will be implemented later.
         seaborn_lineplot_args: further args for seaborn.lineplot. Note that seaborn.lineplot() also passes **kwargs to plt.plot
-        region_properties: Series describing the ROI, with keys Chromosome Start End [other cols]. The plot may show flanks surrounding the ROI, and thus beta_values may contain CpGs outside of the ROI. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
+        region_properties: Dataframe describing the ROIs, with keys Chromosome Start End [other cols], one one row per ROI. The plot may show CpGs outside of the ROIs, and thus beta_values may contain CpGs outside of the ROIs. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
         region_boundaries: if not None, mark region boundaries in the plot. Possible values: 'box' -> draw a rectangle patch around the ROI. 'vlines': draw vertical lines
         region_boundaries_kws: passed to the function creating the region boundary visualization, eg patches.Rectangle or Axes.axvline
         xticks: if None, defaults to [Start, Middle, End] of ROI
@@ -218,6 +222,7 @@ def line_plot(
         bp_padding: padding at the plot ends (purely aesthetic function)
         cpg_marks: how to mark CpG positions in the plot. If None, no visualization of CpG positions. 'vlines' -> vertical lines. 'points' -> individual points for all (subject, cpg) data, in color determined by palette
         cpg_marks_plot_kws: passed to the function creating the cpg mark visualization, ie Axes.vline or seaborn.scatterplot
+        smoother: 'monotonic_spline', 'lowess'. monotonic spline better for small regions, lowess better for large regions
 
     Notes:
         - both CpG positions and the ROI boundaries can optionally be marked with vlines. If both informations are visualized, it is better to choose an alternative visualization for one of them. the ROI can also be marked by a rectangle patch and the CpG positions can also be marked by point markers.
@@ -259,9 +264,16 @@ def line_plot(
 
     sns.despine(ax=ax)
 
+    if smoother == 'monotonic_spline':
+        smoothing_func = _smoothed_monotonic_spline
+    elif smoother == 'lowess':
+        smoothing_func = _lowess_smoother
+    else:
+        raise ValueError('Unknown smoother')
     # connect (subject, pos, beta_value) data with smoothed splines
+    print('using smoothing')
     beta_value_lines = beta_values.groupby("subject", group_keys=False).apply(
-        _smoothed_monotonic_spline
+        smoothing_func,
     )
 
     # Draw lines with hue and linestyle levels
@@ -269,11 +281,11 @@ def line_plot(
         x="Start",
         y="beta_value",
         hue="subject",
-        style="subject",
+        # style="subject",
         # style_order=legend_order,
         # hue_order=legend_order,
         palette=palette,
-        dashes=dashes,
+        # dashes=dashes,
         ax=ax,
         data=beta_value_lines,
         **seaborn_lineplot_args,
@@ -308,37 +320,40 @@ def line_plot(
 
     # Visualize region boundaries with rectangle patch or with vlines
     if region_boundaries == "box":
-        ax.add_patch(
-            patches.Rectangle(
-                (region_properties["Start"], 0),
-                (region_properties["End"] - 2 - region_properties["Start"] + 1),
-                1,
-                **merged_region_boundary_kws,
+        for idx, region_properties_ser in region_properties.iterrows():
+            ax.add_patch(
+                patches.Rectangle(
+                    (region_properties_ser["Start"], 0),
+                    (region_properties_ser["End"] - 2 - region_properties_ser["Start"] + 1),
+                    1,
+                    **merged_region_boundary_kws,
+                )
             )
-        )
     elif region_boundaries == "line":
-        for pos in region_properties[["Start", "End"]]:
-            ax.axvline(pos, **merged_region_boundary_kws)
+        for idx, region_properties_ser in region_properties.iterrows():
+            for pos in region_properties_ser[["Start", "End"]]:
+                ax.axvline(pos, **merged_region_boundary_kws)
 
 
 def bar_plot(
-    beta_values: pd.DataFrame,
-    axes: List[Axes],
-    region_properties: Optional[pd.Series] = None,
-    show_splines: bool = False,
-    palette: Union[str, Dict[str, str]] = "Set1",
-    dashes: Optional[Dict] = None,
-    xticks: Optional[List[int]] = None,
-    yticks_major: Optional[List[int]] = None,
-    yticks_minor: Optional[List[int]] = None,
-    ylim: Optional[Tuple[int]] = (0, 1),
-    subject_order: Optional[List[str]] = None,
-    title: Optional[str] = None,
-    ylabel: str = "% Methylation",
-    xlabel: str = "Position [bp]",
-    region_boundaries: Optional[str] = "box",
-    region_boundaries_kws: Optional[Dict] = None,
-    bp_padding=20,
+        beta_values: pd.DataFrame,
+        axes: List[Axes],
+        region_properties: Optional[pd.DataFrame] = None,
+        show_splines: bool = False,
+        palette: Union[str, Dict[str, str]] = "Set1",
+        dashes: Optional[Dict] = None,
+        xticks: Optional[List[int]] = None,
+        yticks_major: Optional[List[int]] = None,
+        yticks_minor: Optional[List[int]] = None,
+        ylim: Optional[Tuple[int]] = (0, 1),
+        subject_order: Optional[List[str]] = None,
+        title: Optional[str] = None,
+        ylabel: str = "% Methylation",
+        xlabel: str = "Position [bp]",
+        region_boundaries: Optional[str] = "box",
+        region_boundaries_kws: Optional[Dict] = None,
+        bp_padding=20,
+        bar_percent: float = 0.01,
 ) -> None:
     """Draw bar plots (one row per subject) on List[Axes], optionally with profile lines
 
@@ -350,13 +365,14 @@ def bar_plot(
         subject_order: required if beta_values.columns is not categorical, to control subject plot order
         palette: either a palette name known to seaborn.color_palette or a dict mapping subject -> RGB color for all subjects
         dashes: optional Dict subject -> linestyle. Currently ignored, will be implemented later.
-        region_properties: Series describing the ROI, with keys Chromosome Start End [other cols]. The plot may show flanks surrounding the ROI, and thus beta_values may contain CpGs outside of the ROI. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
+        region_properties: Dataframe describing the ROIs, with keys Chromosome Start End [other cols], one one row per ROI. The plot may show CpGs outside of the ROIs, and thus beta_values may contain CpGs outside of the ROIs. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
         region_boundaries: if not None, mark region boundaries in the plot. Possible values: 'box' -> draw a rectangle patch around the ROI. 'vlines': draw vertical lines
         region_boundaries_kws: passed to the function creating the region boundary visualization, eg patches.Rectangle or Axes.axvline
         xticks: if None, defaults to [Start, Middle, End] of ROI
         yticks_major: if None, defaults to
         yticks_minor: gridlines are shown for both yticks_major and yticks_minor, but ticklabels are only shown for yticksmajor.
         bp_padding: padding at the plot ends (purely aesthetic function)
+        bar_percent: width of bars in percent of Axes width
     """
 
     # Implementation notes
@@ -418,7 +434,7 @@ def bar_plot(
 
     # Create bar plots (one subject per Axes), with optional spline lines
     # To ensure visibility of the bars in small plots, they should cover at least one percent of the x axis
-    bar_width = (xlim[1] - xlim[0]) / 100
+    bar_width = (xlim[1] - xlim[0]) * bar_percent
     for i, (subject, group_df) in enumerate(beta_values.groupby("subject", sort=True)):
         axes[i].bar(
             group_df["Start"],
@@ -445,21 +461,22 @@ def bar_plot(
 
     # visualize region boundaries as Rectangle patch or with vlines
     if region_boundaries:
-        for ax in axes:
-            if region_boundaries == "box":
-                ax.add_patch(
-                    patches.Rectangle(
-                        (region_properties["Start"] - bar_width / 2, 0),
-                        (region_properties["End"] - 2 + bar_width)
-                        - region_properties["Start"],
-                        1,
-                        fill="green",
-                        alpha=0.15,
+        for idx, region_properties_ser in region_properties.iterrows():
+            for ax in axes:
+                if region_boundaries == "box":
+                    ax.add_patch(
+                        patches.Rectangle(
+                            (region_properties_ser["Start"] - bar_width / 2, 0),
+                            (region_properties_ser["End"] - 2 + bar_width)
+                            - region_properties_ser["Start"],
+                            1,
+                            fill="green",
+                            alpha=0.15,
+                        )
                     )
-                )
-            else:
-                for pos in (region_properties["Start"], region_properties["End"] - 2):
-                    ax.axvline(pos, **merged_region_boundaries_kws)
+                else:
+                    for pos in (region_properties_ser["Start"], region_properties_ser["End"] - 2):
+                        ax.axvline(pos, **merged_region_boundaries_kws)
 
 
 def create_region_plots(
@@ -489,7 +506,7 @@ def create_region_plots(
     Args:
         beta_values: (cpgs, samples). Sorted by Grange columns, CpG rows must be unique (ie no duplicates allowed). Columns: scalar index of subject names. if not categorical, subject_order must be given.
         cpg_gr: CpG index aligned with the rows in beta_values, with running element_id metadata column
-        regions: Dataframe detailing ROIs to be plotted, columns Chromosome Start End [Strand, {title_col}, ...]
+        regions: Dataframe detailing ROIs to be plotted, columns Chromosome Start End [Strand, {title_col}, ...]. Optionally with column rois, to describe one or more subregions within the full interval which build the set of rois (otherwise the entire region is assumed to be one monolithic ROI). the 'rois' column contains Tuple[Tuple[int, int]], detailing start and end for each region
         output_dir: plots will be put here, under {title}.{suffix} suffices are defined by filetypes, the title depends on title_col arg
         filetypes: list of filetypes, defaults to ['png', 'pdf']
         title_col: name of column in regions df, if given, files are saved as {title_col[region_idx]}_{Chr:Start-End}, otherwise, only the coordinates are used
@@ -565,12 +582,19 @@ def create_region_plots(
             f"{region_ser['Chromosome']}_{region_ser['Start']}-{region_ser['End']}"
         )
 
+        # region_properties are the full region, unless 'rois' column in present
+        if 'rois' in region_ser:
+            region_properties = pd.DataFrame(region_ser['rois'], columns=['Start', 'End']).assign(Chromosome=region_ser['Chromosome'])[['Chromosome', 'Start', 'End']]
+        else:
+            # turn region_ser into dataframe with columns Chromosome, Start, End, ...
+            region_properties = region_ser.to_frame().T
+
         # Now create all plots specified in /plot_types/
 
         # Args shared by all axes-level plot functions
         common_plot_args = dict(
             beta_values=plot_beta_values,
-            region_properties=region_ser,
+            region_properties=region_properties,
             title=curr_title if show_title else None,
         )
 
@@ -738,6 +762,100 @@ def _smoothed_monotonic_spline(beta_value_df: pd.DataFrame) -> pd.DataFrame:
             subject=beta_value_df.iloc[0]["subject"],
         )
     )
+
+
+# gaussian kernel leads to snaking lines
+# box kernel leads to sharp edges at minimum of the curve
+# use trapezoid kernel instead
+# kernel = ac.Trapezoid1DKernel(3, 0.1)
+def _lowess_smoother(beta_value_df: pd.DataFrame, smooth=True) -> pd.DataFrame:
+    """lowess smoothing for use in groupby call
+
+    missing values will be dropped
+    output will be sorted by x-coord
+
+    Args:
+        beta_value_df:
+    """
+    exog = beta_value_df['Start'].values
+    arr = lowess(endog=beta_value_df['beta_value'].values,
+                 exog=exog,
+                 frac=0.1,
+                 it=20,
+                 delta=0.01 * (np.max(exog) - np.min(exog)),
+                 missing='drop',
+                 return_sorted=True,
+                 )
+
+    # CpG positions are the observed /xin/ positions used to construct the spline
+    xin = arr[:, 0]
+    spline = interpolate.PchipInterpolator(
+            xin, arr[:, 1], extrapolate=False
+    )
+    # beta value predictions are computed for every single base between the start and end point (/xout/)
+    xout = np.arange(xin[0], xin[-1])
+    beta_pred = spline(xout)
+
+    if smooth:
+        region_size = beta_value_df['Start'].max() - beta_value_df['Start'].min()
+        kernel_size = np.round(0.1 * region_size)
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+        kernel_size = int(kernel_size)
+
+        # trapezoid kernel
+        # half_kernel_size = int((kernel_size-1) / 2)
+        # kernel = np.concatenate(
+        #         [np.linspace(0, 1, half_kernel_size), [1], np.linspace(0, 1, half_kernel_size)[::-1]]
+        # )
+
+        # gaussian_kernel = scipy.stats.norm.pdf(np.arange(-10, 11), 0, 3)
+        # need to normalize to 1
+        # gaussian_kernel /= np.sum(gaussian_kernel)
+
+        # mean kernel
+        kernel = np.ones(kernel_size) / kernel_size
+        beta_smoothed = convolve(beta_pred, kernel, boundary="extend")
+    else:
+        beta_smoothed = beta_pred
+
+    # # the spline-based predictions are smoothed with small gaussian kernel to avoid sharp edges in the profile lines
+    # if smooth:
+    #     kernel_size = np.round(0.05 * len(beta_value_df))
+    #     if kernel_size % 2 == 0:
+    #         kernel_size += 1
+    #     kernel_size = int(kernel_size)
+    #
+    #     # # trapezoid kernel
+    #     # half_kernel_size = int((kernel_size-1) / 2)
+    #     # _lowess_kernel = np.concatenate(
+    #     #         [np.linspace(0, 1, half_kernel_size), [1], np.linspace(0, 1, half_kernel_size)[::-1]]
+    #     # )
+    #
+    #     # mean kernel
+    #     # _lowess_kernel = np.ones(kernel_size) / kernel_size
+    #
+    #     # gaussian kernel
+    #     # _lowess_gaussian_kernel = scipy.stats.norm.pdf(np.arange(-10, 11), 0, 3)
+    #     # # need to normalize to 1
+    #     # _lowess_gaussian_kernel /= np.sum(_lowess_gaussian_kernel)
+    #
+    #     # kernel based convolution
+    #     # beta_smoothed = convolve(arr[:, 1], _lowess_kernel, boundary="extend")
+    #
+    #     # median filter
+    #     beta_smoothed = medfilt(arr[:, 1], kernel_size)
+    # else:
+    #     beta_smoothed = arr[:, 1]
+
+    return pd.DataFrame(
+            dict(
+                    Start=xout,
+                    beta_value=beta_smoothed,
+                    subject=beta_value_df.iloc[0]["subject"],
+            )
+    )
+
 
 
 def _prepare_beta_values(
