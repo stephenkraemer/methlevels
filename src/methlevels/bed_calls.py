@@ -99,13 +99,15 @@ class BedCalls:
         self.stat_col_order_input = [t[0] for t in sorted(
                 zip(self.stat_col_order_output, self.stat_col_index_input), key=lambda t: t[1])]
 
-    def aggregate(self, intervals_df: pd.DataFrame, n_cores: int, subjects=None) -> MethStats:
+    def aggregate(self, intervals_df: pd.DataFrame, n_cores: int, subjects=None,
+                  additional_index_cols: Optional[List[str]] = None) -> MethStats:
         """
 
         Args:
-            intervals_df: must contain columns Chromosome, Start, End. Arbitrary index allowed (is ignored, the resulting MethStats will have Chromosome, Start, End as index cols). Intervals may be empty (not contain any CpGs). Intervals may overlap.
+            intervals_df: must contain columns Chromosome, Start, End. Arbitrary index allowed (is ignored, the resulting MethStats will have Chromosome, Start, End as index cols). Intervals may be empty (not contain any CpGs). Intervals may overlap. Intervals may be present in duplicates. May not contain column name 'uid'.
             n_cores: parallel computation if n_cores > 1
             subjects: restrict computation to subjects. subjects are automatically re-ordered according to their appearance in pop_order.
+            additional_index_cols: passed on to MethStats.from_flat_dataframe
 
         Returns:
             MethStats object with per-interval counts and beta values
@@ -188,14 +190,16 @@ class BedCalls:
             print(f'WARNING: {n_intervals_discarded} empty intervals have been discarded')
 
         new_idx = ['_'.join(t) for t in calls_merged.columns]
-        new_idx[0:3] = self.grange_col_names
+        new_idx[0:intervals_df.shape[1]] = intervals_df.columns[0:intervals_df.shape[1]].tolist()
         calls_merged.columns = new_idx
+        calls_merged = calls_merged.drop('uid', axis=1)
 
         # pyranges bug: changes dtypes
         calls_merged['Start'] = calls_merged['Start'].astype('i8')
         calls_merged['End'] = calls_merged['End'].astype('i8')
 
-        meth_stats = MethStats.from_flat_dataframe(calls_merged, pop_order=pop_order)
+        meth_stats = MethStats.from_flat_dataframe(calls_merged, pop_order=pop_order,
+                                                   additional_index_cols=additional_index_cols)
 
         return meth_stats
 
@@ -220,7 +224,8 @@ class BedCalls:
                 Optionally, annotation columns may be added to the intervals df.
                 They will be added to the results (available through anno df of
                 the returned MethStats object).
-                If the interval df contains duplicate genomic intervals, it must contain
+                The interval df may contain overlapping intervals, duplicate intervals and emtpy intervals (containing no CpGs).
+                If the interval df contains duplicate or overlapping genomic intervals (shared CpGs), it must contain
                 one or more additional index variables, so that the complete index
                 if fully unique. These additional index variables must be distinguished
                 from annotation variables by passing them via /additional_index_cols/
@@ -234,8 +239,6 @@ class BedCalls:
 
         """
 
-        print('RELOADED')
-
         print('Deprecation warning: elements will be changed to True in the future')
 
         print('Prepare intervals')
@@ -243,9 +246,13 @@ class BedCalls:
         assert intervals_df.columns[0] in ['chr', '#chr', 'chromosome', 'Chromosome', 'chrom']
         assert intervals_df.columns[1:3].to_series().str.lower().tolist() == ['start', 'end']
         intervals_df = intervals_df.rename(columns=MethStats.grange_col_name_mapping)
+        # TODO: a better test whould just be to actively sort the intervals_df and check
+        # that the order does not change
         assert intervals_df['Chromosome'].is_monotonic_increasing
         assert intervals_df.groupby('Chromosome')['Start'].apply(lambda ser: ser.is_monotonic_increasing).all()
-        assert intervals_df.groupby('Chromosome')['End'].apply(lambda ser: ser.is_monotonic_increasing).all()
+        # this assertion can fail even if sorting by Chromosome, Start, End
+        # if the Start sort leads to non-monotonic End orders
+        # assert intervals_df.groupby('Chromosome')['End'].apply(lambda ser: ser.is_monotonic_increasing).all()
         assert intervals_df['region_id'].is_monotonic_increasing
         if intervals_df['Chromosome'].dtype.name == 'category':
             chrom_cat_dtype = intervals_df['Chromosome'].dtype
@@ -307,7 +314,8 @@ class BedCalls:
         #       follow up on this
         flat_df['Start'] = flat_df['Start'].astype('i8')
         flat_df['End'] = flat_df['End'].astype('i8')
-        assert np.all(flat_df['region_id'].unique() == intervals_df['region_id'].to_numpy())
+        # TODO: this assertion does not work with overlapping or duplicate intervals
+        # assert np.all(flat_df['region_id'].unique() == intervals_df['region_id'].to_numpy())
 
         meth_levels = MethStats.from_flat_dataframe(flat_df, pop_order=self.pop_order,
                                                     elements=elements,
