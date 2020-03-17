@@ -214,7 +214,7 @@ class MethStats:
 
         # must be called after adding the anno attribute, because the df property
         # asserts compatibility between anno and df
-        if meth_stats is not None and not self._meth_stats.columns.levels[-1].contains('beta_value'):
+        if meth_stats is not None and not 'beta_value' in self._meth_stats.columns.levels[-1]:
             self.add_beta_values()
 
         if element_anno is not None:
@@ -831,6 +831,13 @@ class MethStats:
 
 
     def subset(self, bool_or_index):
+        """Subset MethStats by bool index or by MultiIndex
+
+        Notes:
+        - This is currently very slow, see code comments
+        - The region_ids are not reset after subsetting, ie they will be non-consecutive
+        """
+
         if isinstance(bool_or_index, (pd.Series, np.ndarray)):
             assert is_bool_dtype(bool_or_index)
         if isinstance(bool_or_index, pd.MultiIndex):
@@ -845,6 +852,11 @@ class MethStats:
 
         remaining_region_ids = new_meth_stats.index.get_level_values('region_id')
 
+        # This reindexing operation is very slow
+        # It is **much** faster if the multiindex is replaced by a scalar region_id index
+        # Going forward, likely the Chromosome, Start, End, region_id MultiIndex of MethStats
+        # dfs will globally be replaced by scalar integer indices, then this problem will resolve
+        # itself
         if self.element_meth_stats is not None:
             new_element_meth_stats = self.element_meth_stats.loc[
                                      nidxs(region_id=remaining_region_ids), :]
