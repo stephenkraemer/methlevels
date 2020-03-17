@@ -767,13 +767,45 @@ class MethStats:
 
         return meth_in_regions
 
-    def filter_intervals(self, coverage=None, n_cpg_min=None, min_delta=None):
+    def filter_intervals(
+            self,
+            min_coverage=None,
+            quantile_capped_min_coverage=None,
+            n_cpg_min=None,
+            min_delta=None,
+            min_delta_pop=None
+    ):
+        """Apply QC filtering to intervals
+
+        Args:
+            min_coverage: hard coverage threshold
+            quantile_capped_min_coverage: soft coverage threshold,
+                see MethStats.is_above_quantile_capped_coverage_threshold
+            n_cpg_min: minimum interval size in # CpG
+            min_delta: minimum delta. If min_delta_pop is None, this filters based on the
+                global delta between the min and max for a given interval. Otherwise,
+                the filter is applied based on the maximum delta against the min_delta_pop
+                for each interval.
+
+        Returns:
+            new methstats object
+        """
+
+        # Notes
+        # - before, min_coverage was the only option and used like now quantile_capped_min_coverage
+
+        if min_coverage is not None and quantile_capped_min_coverage is not None:
+            raise ValueError('You can only pass either min_coverage or quantile_capped_min_coverage')
 
         is_ok_df = pd.DataFrame(index=self._meth_stats.index)
 
-        if coverage:
+        if min_coverage:
+            n_total = self._meth_stats.loc[:, ncls(Stat='n_total')]
+            is_ok_df['coverage_ok'] = n_total.gt(min_coverage).all(axis=1)
+
+        if quantile_capped_min_coverage:
             is_ok_df['coverage_ok'] = self.is_above_quantile_capped_coverage_threshold(
-                    coverage_threshold=coverage,
+                    coverage_threshold=min_coverage,
                     max_fraction_lost=0.2
             )
 
@@ -786,8 +818,12 @@ class MethStats:
 
         if min_delta:
             betas = self._meth_stats.loc[:, ncls(Stat='beta_value')]
-            abs_deltas = betas.max(axis=1) - betas.min(axis=1)
-            is_ok_df['delta_ok'] = abs_deltas > min_delta
+            if min_delta_pop is None:
+                abs_deltas = betas.max(axis=1) - betas.min(axis=1)
+            else:
+                deltas = betas.subtract(betas[min_delta_pop], axis=0)
+                abs_deltas = deltas.abs().max(axis=1)
+            is_ok_df['delta_ok'] = abs_deltas >= min_delta
 
         interval_is_ok = is_ok_df.all(axis=1)
 
@@ -879,7 +915,8 @@ class MethStats:
 
 
     def _flatten_and_save(self, stats, anno, filepaths: List[Union[str, Path]]):
-        allowed_file_types = ['.tsv', '.feather', '.p']
+        """Save df and optional matched anno together with flat columns index"""
+        allowed_file_types = ['.tsv', '.feather', '.p', '.bed']
         if not all([Path(fp).suffix in allowed_file_types for fp in filepaths]):
             raise ValueError(f'Unknown filepath suffix.'
                              f' Allowed suffices: {allowed_file_types}')
@@ -896,6 +933,9 @@ class MethStats:
                 res.to_feather(fp)
             elif fp.endswith('.tsv'):
                 res.to_csv(fp, sep='\t', header=True, index=False)
+            elif fp.endswith('.bed'):
+                (res.rename(columns={'Chromosome': '#Chromosome'})
+                 .to_csv(fp, sep='\t', header=True, index=False))
             else:  # fp.endswith('.p'):
                 res.to_pickle(fp)
         stats.columns = orig_multi_idx
