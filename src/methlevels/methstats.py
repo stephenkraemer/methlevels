@@ -850,7 +850,9 @@ class MethStats:
         else:
             new_anno = None
 
-        remaining_region_ids = new_meth_stats.index.get_level_values('region_id')
+        if self.element_meth_stats is not None:
+            # not necessary if these are only interval data
+            remaining_region_ids = new_meth_stats.index.get_level_values('region_id')
 
         # This reindexing operation is very slow
         # It is **much** faster if the multiindex is replaced by a scalar region_id index
@@ -880,9 +882,10 @@ class MethStats:
                 new_stats[name] = df.loc[bool_or_index, :]
             new_meth_in_regions.stats = new_stats
 
-        counts_region_ids = new_meth_in_regions.counts.index.get_level_values('region_id')
-        elem_region_ids = new_meth_in_regions.element_meth_stats.index.get_level_values('region_id').unique()
-        assert counts_region_ids.equals(elem_region_ids)
+        if new_meth_in_regions.element_meth_stats is not None:
+            counts_region_ids = new_meth_in_regions.counts.index.get_level_values('region_id')
+            elem_region_ids = new_meth_in_regions.element_meth_stats.index.get_level_values('region_id').unique()
+            assert counts_region_ids.equals(elem_region_ids)
 
         return new_meth_in_regions
 

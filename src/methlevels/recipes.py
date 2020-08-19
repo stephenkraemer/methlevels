@@ -8,6 +8,7 @@ import pandas as pd
 from typing import Optional, Dict, List
 
 
+# noinspection PyIncorrectDocstring
 def compute_meth_stats(
     bed_calls: ml.BedCalls,
     intervals: pd.DataFrame,
@@ -36,7 +37,6 @@ def compute_meth_stats(
     Args:
         bed_calls: determines the samples for which meth stats are calculated
         intervals: passed to ml.BedCalls.intersect. See BedCalls doc for details.
-        subjects: passed to ml.BedCalls.intersect
         filter_args: Passed too MethStats.filter_intervals.
             Example: dict(coverage=30, n_cpg_min=3, min_delta=0.1)
             Note that without any filtering, there may be undefined beta values,
@@ -104,11 +104,11 @@ def compute_meth_stats(
         meth_stats_poplevel_v1.add_auc_stat(root_subject)
 
     output_paths = save_methstats(
-        meth_stats_poplevel_v1,
-        meth_stats_replevel_v1,
-        result_dir,
-        result_name_prefix,
-        result_name_suffix,
+        meth_stats_poplevel=meth_stats_poplevel_v1,
+        meth_stats_replevel=meth_stats_replevel_v1,
+        result_dir=result_dir,
+        result_name_prefix=result_name_prefix,
+        result_name_suffix=result_name_suffix,
     )
 
     return output_paths
@@ -120,7 +120,7 @@ def save_methstats(
     meth_stats_replevel: Optional[ml.MethStats]=None,
     result_name_prefix: str = '',
     result_name_suffix: str = '',
-) -> Dict[str, str]:
+) -> Dict:
     """Save MethStats object and contained dataframes
 
     Saves MethStats object, and cpg and interval-level dataframes if present.
