@@ -112,7 +112,7 @@ def read_csv_with_padding(s, header=0, index_col=None, **kwargs):
 
 
 def has_duplicated_coord(self):
-    if self.columns.contains('Chromosome') and self.columns.contains('Start'):
+    if 'Chromosome' in self.columns and 'Start' in self.columns:
         return self.duplicated(['Chromosome', 'Start']).any()
     elif {'Chromosome', 'Start'} <= set(self.index.names):
         return self.index.to_frame().duplicated(['Chromosome', 'Start']).any()

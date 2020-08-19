@@ -946,7 +946,7 @@ class DMRPlot:
             filetypes = ["png"]
 
         if draw_region_boundaries:
-            assert self.meth_stats.anno.columns.contains(self.region_part_col)
+            assert self.region_part_col in self.meth_stats.anno.columns
 
         for region_id, anno_group in self.meth_stats.anno.groupby(self.region_id_col):
 

@@ -38,7 +38,7 @@ def _assert_tidy_meth_stats_data_contract(df):
     assert df[gr_names.chrom].dtype.name == 'category'
     assert isinstance(df[gr_names.chrom].iloc[0], str)
     assert df[gr_names.start].dtype ==  df[gr_names.end].dtype == np.int64
-    assert df.columns.contains('Subject')
+    assert 'Subject' in df.columns
 
     # Sorted by chrom, start, end
     assert df[gr_names.chrom].is_monotonic
@@ -66,18 +66,18 @@ def _assert_tidy_anno_contract(anno, df):
     # Index variables are GRange cols, same for all samples,
     # so no Subject, Replicate info
     assert list(columns[0:3]) == gr_names.all
-    assert not columns.contains('Subject')
+    assert not 'Subject' in columns
 
     # Sorted by chrom, start, end - this aligns it with the GRange sorting order
     # of the meth stats df
-    assert not columns.contains('Replicate')
+    assert not 'Replicate' in columns
     chrom_start_idx = [gr_names.chrom, gr_names.start]
     a =  df[chrom_start_idx].drop_duplicates().reset_index(drop=True)
     b = anno[[gr_names.chrom, gr_names.start]]
     assert a.equals(b)
 
     # meth stats df has grange info for each sample
-    if df.columns.contains('Replicate'):
+    if 'Replicate' in df.columns:
         n_samples = df[['Subject', 'Replicate']].drop_duplicates().shape[0]
     else:
         n_samples = df['Subject'].nunique()

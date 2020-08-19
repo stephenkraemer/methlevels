@@ -16,8 +16,8 @@ def _dmr_intervals_data_contract(self):
     assert self.df[gr_names.chrom].dtype.name == 'category'
     assert isinstance(self.df[gr_names.chrom].cat.categories[0], str)
     assert self.df[gr_names.start].dtype == self.df[gr_names.end].dtype == np.int64
-    assert self.df.columns.contains(self.region_id_col)
-    assert self.df.columns.contains(self.region_part_col)
+    assert self.region_id_col in self.df.columns
+    assert self.region_part_col in self.df.columns
     assert isinstance(self.df.index, pd.RangeIndex)
 
     # sorted by region id, then by chr, start, end
