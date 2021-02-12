@@ -12,7 +12,6 @@ setup(name='methlevels',
       package_dir={'': 'src'},
 
       install_requires=[
-          'dpcontracts==0.4.0',
           'pandas>=0.23.4',
           'joblib>=0.12',
           'matplotlib>=3.0.0',
