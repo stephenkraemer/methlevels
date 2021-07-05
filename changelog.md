@@ -1,3 +1,8 @@
+# next version
+
+- add module io
+  - add io.gtf_to_bed_like_df
+
 - remove dpcontracts dependency
   - was only used in methlevels.dmr_intervals, which is - i think - a deprecated experiment anyway
   - removed the dpcontracts code from the module
