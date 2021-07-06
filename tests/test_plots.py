@@ -19,9 +19,11 @@ def test_plot_gene_model():
     gencode_df_solution = pd.read_pickle(
         "/home/kraemers/projects/methlevels/tests/test-data/gencode_mm10_egf_region_bed-like-df.p"
     )
+
     # constrained layout interferes with text size determination
     fig, ax = plt.subplots(1, 1, dpi = 180, figsize = (16/2.54, 6/2.54))
     plot_gene_model(df=gencode_df_solution, ax=ax)
+
     fig.savefig('/home/kraemers/temp/test.svg')
     
 

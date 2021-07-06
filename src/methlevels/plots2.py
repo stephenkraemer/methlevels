@@ -34,13 +34,25 @@ def plot_gene_model(df, ax):
     - no genes, only transcripts with parts: intron, exon, UTR
     """
 
+    n_utr_and_exons_features_expected = df.query('feature == "exon" or "UTR" in feature').drop_duplicates(subset = ['Chromosome', 'Start', 'End', 'transcript_id']).shape[0]
+
     # %%
+    transcript_parts_dfs = []
+    for _unused, group_df in df.groupby('transcript_id'):
+        gr_exons = pr.PyRanges(group_df.query('feature == "exon"'))
+        gr_utrs =  pr.PyRanges(group_df.query('"UTR" in feature'))
+        gr_exons = gr_exons.subtract(gr_utrs)
+        transcript_parts_dfs.append(pd.concat([gr_exons.df, gr_utrs.df], axis = 0))
+
     features = (
-        df.query('feature in ["exon", "intron", "UTR"]')
+        pd.concat(transcript_parts_dfs, axis = 0)
         .groupby("transcript_id")
         .apply(lambda df: df.sort_values(["Start", "End"]))
         .droplevel(-1)
-    )
+        )
+
+    assert n_utr_and_exons_features_expected == features.shape[0]
+    # %%
 
     transcripts_sorted_by_start_and_length = (
         df.query('feature == "transcript"')
@@ -55,11 +67,10 @@ def plot_gene_model(df, ax):
         get_text_width_data_coordinates, ax=ax
     )
     transcripts_sorted_by_start_and_length["gene_name_text_width_data_coords"]
-    ax.get_xlim()
     # %%
 
-    # %%
 
+    # %%
     # MUST be done before determining label sizes (?)
     # ax.clear()
     xmin = transcripts_sorted_by_start_and_length.Start.min()
@@ -70,7 +81,7 @@ def plot_gene_model(df, ax):
     t["label_size_data_coords"] = t.gene_name.apply(
         get_text_width_data_coordinates, ax=ax
     )
-    t['center'] = t['Start'] + (t['End'] - t['Start']) / 2
+    t["center"] = t["Start"] + (t["End"] - t["Start"]) / 2
     t["transcript_label_start"] = t["center"] - (t["label_size_data_coords"] / 2)
     t["transcript_label_end"] = t["center"] + (t["label_size_data_coords"] / 2)
     t.loc[t["transcript_label_start"] < xmin, "transcript_label_start"] = xmin
@@ -97,7 +108,6 @@ def plot_gene_model(df, ax):
     current_row = n_transcripts - 0.5
     current_end = 0
     while transcripts_to_be_placed_current:
-
         for transcript_id in transcripts_to_be_placed_current:
             transcript_ser = transcripts_sorted_by_start_and_length.loc[transcript_id]
             if transcript_ser[["Start", "transcript_label_start"]].min() < current_end:
@@ -105,7 +115,6 @@ def plot_gene_model(df, ax):
             else:
                 transcript_rows[transcript_id] = current_row
                 current_end = transcript_ser[["End", "transcript_label_end"]].max()
-
         transcripts_to_be_placed_current = transcript_to_be_placed_next
         transcript_to_be_placed_next = []
         current_row -= 1
@@ -116,6 +125,7 @@ def plot_gene_model(df, ax):
 
     ax.set_ylim(0, max(transcript_rows.values()) + 0.5)
 
+    ax.clear()
     for (
         transcript_id,
         transcript_ser,
@@ -131,7 +141,7 @@ def plot_gene_model(df, ax):
             row=transcript_rows[transcript_id],
             ax=ax,
         )
-    # display(fig)
+    display(fig)
 
 
 def get_text_width_data_coordinates(s, ax):
@@ -176,16 +186,29 @@ def _plot_transcript(transcript_ser, row, ax, x_axis_size):
 def _plot_transcript_parts(df, row, ax):
     rectangles = []
     rectangle_height = 0.3
+    rectangle_height_utrs = 0.15
     for _unused, row_ser in df.iterrows():
-        rectangles.append(
-            mpatches.Rectangle(
-                xy=(row_ser.Start, row - (rectangle_height / 2)),
-                width=row_ser.End - row_ser.Start,
-                height=rectangle_height,
-                # linewidth=0,
-                color="blue",
+        print(row_ser.feature)
+        if "UTR" not in row_ser.feature:
+            rectangles.append(
+                mpatches.Rectangle(
+                    xy=(row_ser.Start, row - (rectangle_height / 2)),
+                    width=row_ser.End - row_ser.Start,
+                    height=rectangle_height,
+                    # linewidth=0,
+                    color="blue",
+                )
             )
-        )
+        else:
+            rectangles.append(
+                mpatches.Rectangle(
+                    xy=(row_ser.Start, row - (rectangle_height_utrs / 2)),
+                    width=row_ser.End - row_ser.Start,
+                    height=rectangle_height_utrs,
+                    # linewidth=0,
+                    color="blue",
+                )
+            )
     ax.add_collection(
         matplotlib.collections.PatchCollection(
             rectangles, match_original=True, zorder=3
