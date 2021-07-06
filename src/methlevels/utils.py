@@ -118,3 +118,4 @@ def has_duplicated_coord(self):
         return self.index.to_frame().duplicated(['Chromosome', 'Start']).any()
     else:
         raise ValueError('Missing Chromosome or Start information')
+

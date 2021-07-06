@@ -41,9 +41,11 @@ Next steps
 from copy import copy
 from typing import Optional, List, Union, Dict, Tuple
 
+import matplotlib.text as mpltext
 import matplotlib as mpl
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
+from pandas.core.frame import DataFrame
 import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -62,6 +64,9 @@ import pyranges as pr
 
 from methlevels import MethStats
 from methlevels.utils import NamedColumnsSlice as ncls
+
+import matplotlib.patches as mpatches
+import matplotlib.collections
 
 
 _REGION_BOUNDARY_BOX_BASE_PARAMS = {"fill": "blue", "alpha": 0.2}
@@ -202,7 +207,7 @@ def line_plot(
     ylabel: str = "Subject",
     xlabel: str = "% Methylation",
     legend_title: str = "",
-    smoother='monotonic_spline',
+    smoother="monotonic_spline",
 ) -> None:
     """Interpolate, smooth and draw methylation profile lines onto an Axes
 
@@ -264,14 +269,14 @@ def line_plot(
 
     sns.despine(ax=ax)
 
-    if smoother == 'monotonic_spline':
+    if smoother == "monotonic_spline":
         smoothing_func = _smoothed_monotonic_spline
-    elif smoother == 'lowess':
+    elif smoother == "lowess":
         smoothing_func = _lowess_smoother
     else:
-        raise ValueError('Unknown smoother')
+        raise ValueError("Unknown smoother")
     # connect (subject, pos, beta_value) data with smoothed splines
-    print('using smoothing')
+    print("using smoothing")
     beta_value_lines = beta_values.groupby("subject", group_keys=False).apply(
         smoothing_func,
     )
@@ -324,7 +329,12 @@ def line_plot(
             ax.add_patch(
                 patches.Rectangle(
                     (region_properties_ser["Start"], 0),
-                    (region_properties_ser["End"] - 2 - region_properties_ser["Start"] + 1),
+                    (
+                        region_properties_ser["End"]
+                        - 2
+                        - region_properties_ser["Start"]
+                        + 1
+                    ),
                     1,
                     **merged_region_boundary_kws,
                 )
@@ -336,24 +346,24 @@ def line_plot(
 
 
 def bar_plot(
-        beta_values: pd.DataFrame,
-        axes: List[Axes],
-        region_properties: Optional[pd.DataFrame] = None,
-        show_splines: bool = False,
-        palette: Union[str, Dict[str, str]] = "Set1",
-        dashes: Optional[Dict] = None,
-        xticks: Optional[List[int]] = None,
-        yticks_major: Optional[List[int]] = None,
-        yticks_minor: Optional[List[int]] = None,
-        ylim: Optional[Tuple[int]] = (0, 1),
-        subject_order: Optional[List[str]] = None,
-        title: Optional[str] = None,
-        ylabel: str = "% Methylation",
-        xlabel: str = "Position [bp]",
-        region_boundaries: Optional[str] = "box",
-        region_boundaries_kws: Optional[Dict] = None,
-        bp_padding=20,
-        bar_percent: float = 0.01,
+    beta_values: pd.DataFrame,
+    axes: List[Axes],
+    region_properties: Optional[pd.DataFrame] = None,
+    show_splines: bool = False,
+    palette: Union[str, Dict[str, str]] = "Set1",
+    dashes: Optional[Dict] = None,
+    xticks: Optional[List[int]] = None,
+    yticks_major: Optional[List[int]] = None,
+    yticks_minor: Optional[List[int]] = None,
+    ylim: Optional[Tuple[int]] = (0, 1),
+    subject_order: Optional[List[str]] = None,
+    title: Optional[str] = None,
+    ylabel: str = "% Methylation",
+    xlabel: str = "Position [bp]",
+    region_boundaries: Optional[str] = "box",
+    region_boundaries_kws: Optional[Dict] = None,
+    bp_padding=20,
+    bar_percent: float = 0.01,
 ) -> None:
     """Draw bar plots (one row per subject) on List[Axes], optionally with profile lines
 
@@ -475,8 +485,16 @@ def bar_plot(
                         )
                     )
                 else:
-                    for pos in (region_properties_ser["Start"], region_properties_ser["End"] - 2):
+                    for pos in (
+                        region_properties_ser["Start"],
+                        region_properties_ser["End"] - 2,
+                    ):
                         ax.axvline(pos, **merged_region_boundaries_kws)
+
+
+
+
+
 
 
 def create_region_plots(
@@ -583,8 +601,12 @@ def create_region_plots(
         )
 
         # region_properties are the full region, unless 'rois' column in present
-        if 'rois' in region_ser:
-            region_properties = pd.DataFrame(region_ser['rois'], columns=['Start', 'End']).assign(Chromosome=region_ser['Chromosome'])[['Chromosome', 'Start', 'End']]
+        if "rois" in region_ser:
+            region_properties = pd.DataFrame(
+                region_ser["rois"], columns=["Start", "End"]
+            ).assign(Chromosome=region_ser["Chromosome"])[
+                ["Chromosome", "Start", "End"]
+            ]
         else:
             # turn region_ser into dataframe with columns Chromosome, Start, End, ...
             region_properties = region_ser.to_frame().T
@@ -777,27 +799,26 @@ def _lowess_smoother(beta_value_df: pd.DataFrame, smooth=True) -> pd.DataFrame:
     Args:
         beta_value_df:
     """
-    exog = beta_value_df['Start'].values
-    arr = lowess(endog=beta_value_df['beta_value'].values,
-                 exog=exog,
-                 frac=0.1,
-                 it=20,
-                 delta=0.01 * (np.max(exog) - np.min(exog)),
-                 missing='drop',
-                 return_sorted=True,
-                 )
+    exog = beta_value_df["Start"].values
+    arr = lowess(
+        endog=beta_value_df["beta_value"].values,
+        exog=exog,
+        frac=0.1,
+        it=20,
+        delta=0.01 * (np.max(exog) - np.min(exog)),
+        missing="drop",
+        return_sorted=True,
+    )
 
     # CpG positions are the observed /xin/ positions used to construct the spline
     xin = arr[:, 0]
-    spline = interpolate.PchipInterpolator(
-            xin, arr[:, 1], extrapolate=False
-    )
+    spline = interpolate.PchipInterpolator(xin, arr[:, 1], extrapolate=False)
     # beta value predictions are computed for every single base between the start and end point (/xout/)
     xout = np.arange(xin[0], xin[-1])
     beta_pred = spline(xout)
 
     if smooth:
-        region_size = beta_value_df['Start'].max() - beta_value_df['Start'].min()
+        region_size = beta_value_df["Start"].max() - beta_value_df["Start"].min()
         kernel_size = np.round(0.1 * region_size)
         if kernel_size % 2 == 0:
             kernel_size += 1
@@ -849,13 +870,12 @@ def _lowess_smoother(beta_value_df: pd.DataFrame, smooth=True) -> pd.DataFrame:
     #     beta_smoothed = arr[:, 1]
 
     return pd.DataFrame(
-            dict(
-                    Start=xout,
-                    beta_value=beta_smoothed,
-                    subject=beta_value_df.iloc[0]["subject"],
-            )
+        dict(
+            Start=xout,
+            beta_value=beta_smoothed,
+            subject=beta_value_df.iloc[0]["subject"],
+        )
     )
-
 
 
 def _prepare_beta_values(
@@ -892,8 +912,6 @@ def _prepare_beta_values(
     # Sorting by Start is sufficient, because we are looking at a set of CpGs on the same Chromosome
     beta_values = beta_values.sort_values(["subject", "Start"])
     return beta_values
-
-
 
 
 # ===================== DEPRECATED =============================================

@@ -63,7 +63,7 @@ def gff_to_bed_like_df(fp: str, chrom_dtype: CategoricalDtype):
             "Start",
             "End",
             "score",
-            "feat_strand",
+            "Strand",
             "frame",
             "attribute",
         ],
@@ -71,7 +71,7 @@ def gff_to_bed_like_df(fp: str, chrom_dtype: CategoricalDtype):
             "Chromosome": chrom_dtype,
             "Start": "Int64",
             "End": "Int64",
-            "feat_strand": strand_dtype,
+            "Strand": strand_dtype,
             "feature": "category",
             "source": "category",
         },
@@ -81,7 +81,7 @@ def gff_to_bed_like_df(fp: str, chrom_dtype: CategoricalDtype):
     # TODO: subtract start, end
 
     assert (
-        gencode_df["feat_strand"].isin(["+", "-"]).all()
+        gencode_df["Strand"].isin(["+", "-"]).all()
     ), "distance computations require that the strand is defined for all features"
 
     gencode_df = _expand_gtf_attributes(gencode_df)
