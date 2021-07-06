@@ -34,22 +34,26 @@ def plot_gene_model(df, ax):
     - no genes, only transcripts with parts: intron, exon, UTR
     """
 
-    n_utr_and_exons_features_expected = df.query('feature == "exon" or "UTR" in feature').drop_duplicates(subset = ['Chromosome', 'Start', 'End', 'transcript_id']).shape[0]
-
     # %%
+    n_utr_and_exons_features_expected = (
+        df.query('feature == "exon" or "UTR" in feature')
+        .drop_duplicates(subset=["Chromosome", "Start", "End", "transcript_id"])
+        .shape[0]
+    )
+
     transcript_parts_dfs = []
-    for _unused, group_df in df.groupby('transcript_id'):
+    for _unused, group_df in df.groupby("transcript_id"):
         gr_exons = pr.PyRanges(group_df.query('feature == "exon"'))
-        gr_utrs =  pr.PyRanges(group_df.query('"UTR" in feature'))
+        gr_utrs = pr.PyRanges(group_df.query('"UTR" in feature'))
         gr_exons = gr_exons.subtract(gr_utrs)
-        transcript_parts_dfs.append(pd.concat([gr_exons.df, gr_utrs.df], axis = 0))
+        transcript_parts_dfs.append(pd.concat([gr_exons.df, gr_utrs.df], axis=0))
 
     features = (
-        pd.concat(transcript_parts_dfs, axis = 0)
+        pd.concat(transcript_parts_dfs, axis=0)
         .groupby("transcript_id")
         .apply(lambda df: df.sort_values(["Start", "End"]))
         .droplevel(-1)
-        )
+    )
 
     assert n_utr_and_exons_features_expected == features.shape[0]
     # %%
@@ -68,7 +72,6 @@ def plot_gene_model(df, ax):
     )
     transcripts_sorted_by_start_and_length["gene_name_text_width_data_coords"]
     # %%
-
 
     # %%
     # MUST be done before determining label sizes (?)
@@ -120,11 +123,11 @@ def plot_gene_model(df, ax):
         current_row -= 1
         current_end = 0
     # make transcript rows start at 0
-    transcript_rows = {k: v - current_row + 0.5 for k, v in transcript_rows.items()}
+    transcript_rows = {k: v - current_row - 0.5 for k, v in transcript_rows.items()}
     # %%
 
-    ax.set_ylim(0, max(transcript_rows.values()) + 0.5)
 
+    # %%
     ax.clear()
     for (
         transcript_id,
@@ -134,14 +137,24 @@ def plot_gene_model(df, ax):
             transcript_ser=transcript_ser,
             row=transcript_rows[transcript_id],
             ax=ax,
-            x_axis_size=xmax - xmin,
+            color='black',
         )
         _plot_transcript_parts(
             df=features.loc[[transcript_id]],
+            transcript_ser=transcript_ser,
             row=transcript_rows[transcript_id],
             ax=ax,
+            x_axis_size = xmax - xmin,
+            color = 'black',
         )
-    display(fig)
+
+    # somehow the plotting code above resets this
+
+    rectangle_height = 0.3
+    ax.set_ylim(- 0.5 + (rectangle_height / 2), max(transcript_rows.values()) + 0.5)
+
+    # display(fig)
+    # %%
 
 
 def get_text_width_data_coordinates(s, ax):
@@ -155,9 +168,9 @@ def get_text_width_data_coordinates(s, ax):
     return data_coord_bbox.width
 
 
-def _plot_transcript(transcript_ser, row, ax, x_axis_size):
+def _plot_transcript(transcript_ser, row, ax, color):
     rectangle_height = 0.3
-    ax.hlines(y=row, xmin=transcript_ser.Start, xmax=transcript_ser.End)
+    ax.hlines(y=row, xmin=transcript_ser.Start, xmax=transcript_ser.End, color=color)
     ax.text(
         x=transcript_ser.loc["transcript_label_center"],
         # this puts it right in the middle - no clear association with a transcript, and may go out of bounds at the bottom row
@@ -183,7 +196,8 @@ def _plot_transcript(transcript_ser, row, ax, x_axis_size):
     #             va = 'center')
 
 
-def _plot_transcript_parts(df, row, ax):
+# %%
+def _plot_transcript_parts(df, transcript_ser, row, ax, x_axis_size, color):
     rectangles = []
     rectangle_height = 0.3
     rectangle_height_utrs = 0.15
@@ -196,7 +210,7 @@ def _plot_transcript_parts(df, row, ax):
                     width=row_ser.End - row_ser.Start,
                     height=rectangle_height,
                     # linewidth=0,
-                    color="blue",
+                    color=color,
                 )
             )
         else:
@@ -206,7 +220,7 @@ def _plot_transcript_parts(df, row, ax):
                     width=row_ser.End - row_ser.Start,
                     height=rectangle_height_utrs,
                     # linewidth=0,
-                    color="blue",
+                    color=color,
                 )
             )
     ax.add_collection(
@@ -214,3 +228,39 @@ def _plot_transcript_parts(df, row, ax):
             rectangles, match_original=True, zorder=3
         ),
     )
+    # introns with arrows
+    perc_of_axis_between_arrows = 0.03
+
+    arrow_positions = []
+    for _unused, ser in (
+        pr.PyRanges(transcript_ser.to_frame().T).subtract(pr.PyRanges(df)).df.iterrows()
+    ):
+        size = ser.End - ser.Start
+        n_arrows = np.floor(
+            (size) / (perc_of_axis_between_arrows * x_axis_size)
+        ).astype(int)
+        between_arrows = size / (n_arrows + 1)
+        for i in range(1, n_arrows + 1):
+            arrow_positions.append(ser.Start + i * between_arrows)
+    arrow_positions
+
+    arrow_length_perc_of_x_axis_size = 0.005
+    arrow_height = 0.05  # data coordinates size 1 per row
+    if transcript_ser.Strand == '+':
+        slicer = slice(None, None)
+    else:
+        slicer = slice(None, None, -1)
+    for pos in arrow_positions:
+        ax.plot(
+            [pos - arrow_length_perc_of_x_axis_size * x_axis_size / 2,
+             pos +  arrow_length_perc_of_x_axis_size * x_axis_size / 2],
+            [row - arrow_height, row][slicer],
+            color = color,
+        )
+        ax.plot(
+            [pos - arrow_length_perc_of_x_axis_size * x_axis_size / 2,
+             pos +  arrow_length_perc_of_x_axis_size * x_axis_size / 2],
+            [row + arrow_height, row][slicer],
+            color = color,
+        )
+# %%

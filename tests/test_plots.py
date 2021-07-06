@@ -1,5 +1,6 @@
 from pathlib import Path
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 import pandas as pd
 import numpy as np
@@ -21,7 +22,10 @@ def test_plot_gene_model():
     )
 
     # constrained layout interferes with text size determination
-    fig, ax = plt.subplots(1, 1, dpi = 180, figsize = (16/2.54, 6/2.54))
+    import mouse_hema_meth.styling as mhstyle
+    mpl.rcParams.update(mhstyle.paper_context)
+
+    fig, ax = plt.subplots(1, 1, dpi = 180, figsize = (16/2.54, 3/2.54))
     plot_gene_model(df=gencode_df_solution, ax=ax)
 
     fig.savefig('/home/kraemers/temp/test.svg')
