@@ -1,3 +1,8 @@
+- barplot
+  - BREAKING renamed title arg to plot_title
+  - BREAKING remove bp_padding, yticks_major, yticks_minor
+
+
 # next version
 
 - add module io

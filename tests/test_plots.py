@@ -11,8 +11,18 @@ from methlevels.utils import (
     read_csv_with_padding,
 )
 from methlevels.utils import NamedColumnsSlice as ncls
-from methlevels.plots import plot_gene_model
+from methlevels.plots2 import plot_gene_model, get_text_width_data_coordinates
+from methlevels.plots import bar_plot
 
+import mouse_hema_meth.styling as mhstyle
+
+mpl.rcParams.update(mhstyle.paper_context)
+import mouse_hema_meth.utils as ut
+import mouse_hema_meth.paths as mhpaths
+import mouse_hema_meth.methylome.alignments_mcalls.get_meth_stats_for_granges_lib as get_meth_stats_for_granges_lib
+import mouse_hema_meth.methylome.clustering.characterize_clustering_2_paths as characterize_clustering_2_paths
+import mouse_hema_meth.shared_vars as mhvars
+import matplotlib.gridspec as gridspec
 
 
 def test_plot_gene_model():
@@ -21,15 +31,180 @@ def test_plot_gene_model():
         "/home/kraemers/projects/methlevels/tests/test-data/gencode_mm10_egf_region_bed-like-df.p"
     )
 
-    # constrained layout interferes with text size determination
-    import mouse_hema_meth.styling as mhstyle
-    mpl.rcParams.update(mhstyle.paper_context)
+    fig, ax = plt.subplots(
+        1, 1, dpi=180, figsize=(16 / 2.54, 3 / 2.54), constrained_layout=True
+    )
+    plot_gene_model(
+        df=gencode_df_solution,
+        ax=ax,
+        rectangle_height=0.4,
+        rectangle_height_utrs=0.2,
+        perc_of_axis_between_arrows=0.03,
+        arrow_length_perc_of_x_axis_size=0.01,
+        arrow_height=0.1,
+        gene_label_size=6,
+        bp_scale="Mb",
+        format_str="{:.3f}",
+    )
+    ut.save_and_display(fig, png_path=mhpaths.project_temp_dir + "/asfsdf.png")
 
-    fig, ax = plt.subplots(1, 1, dpi = 180, figsize = (16/2.54, 3/2.54))
-    plot_gene_model(df=gencode_df_solution, ax=ax)
+    fig.savefig("/home/kraemers/temp/test.svg")
 
-    fig.savefig('/home/kraemers/temp/test.svg')
-    
+
+def test_barplot():
+
+    # dms_clustered_perc = get_meth_stats_for_granges_lib.DmrMethStatsDfs(
+    #     characterize_clustering_2_paths.clustered_only_dms_perc_base_path
+    # )
+    # dms_clustered_perc.dmr_betas
+
+    dms_all = get_meth_stats_for_granges_lib.dmr_meth_stats_all_pops_no_qc_poplevel
+
+    plot_df = (
+        dms_all.cpg_betas.rename(columns=mhvars.ds1.nice_names_to_plot_names_d)
+        # [
+        #     ["HSC", "Monocytes", "B cells"]
+        # ]
+        .loc[dms_all.cpg_annos.region_id.eq(100)]
+        .stack()
+        .reset_index()
+        .set_axis(["cpg_id", "subject", "beta_value"], axis=1)
+        .merge(dms_all.cpg_annos[["Chromosome", "Start", "End"]], on="cpg_id")[
+            ["Chromosome", "Start", "End", "subject", "beta_value"]
+        ]
+    )
+
+    # %%
+    n_plots = plot_df.subject.nunique()
+    n_cols = 1
+    figsize = (ut.cm(5), ut.cm(15))
+    ylabel = "Methylation (%)"
+    # xlabel = 'Position (bp)'
+    # skip_subplots = [(5, 1), (8, 1)]
+    skip_subplots = []
+
+    n_plots = n_plots + len(skip_subplots)
+    n_rows = int(np.ceil(n_plots / n_cols))
+
+    fig = plt.figure(constrained_layout=True, dpi=180, figsize=figsize)
+    fig.set_constrained_layout_pads(h_pad=0, w_pad=0.02, hspace=0, wspace=0)
+    gs = gridspec.GridSpec(n_rows, n_cols, figure=fig)
+    axes_flat = [
+        fig.add_subplot(gs[i, j])
+        for i in range(n_rows)
+        for j in range(n_cols)
+        if (i * n_cols + j + 1 <= n_plots) and (i, j) not in skip_subplots
+    ]
+    big_ax = fig.add_subplot(gs[:, :], frameon=False)
+    big_ax.tick_params(
+        axis="both",
+        which="both",
+        bottom=False,
+        left=False,
+        labelbottom=False,
+        labelleft=False,
+        labelsize=0,
+        length=0,
+    )
+    # big_ax.set_yticks([0.5])
+    # big_ax.set_yticklabels(['asdfasdfasfd'], zorder=0, color='white')
+    # big_ax.set_ylabel(ylabel)
+    # # plt.setp(big_ax.get_yticklabels(), visible=False)
+    # fig
+
+    # big_ax.set_xlabel(xlabel)
+
+    # fig, axes = plt.subplots(
+    #     plot_df.subject.nunique(),
+    #     1,
+    #     constrained_layout=True,
+    #     dpi=180,
+    #     figsize=(ut.cm(8), ut.cm(15)),
+    # )
+    # # the labels are a little cut off, why?
+    # fig.set_constrained_layout_pads(hspace=0, wspace=0, h_pad=0.01, w_pad=0.01)
+
+    bar_plot(
+        beta_values=plot_df,
+        axes=axes_flat,  # type: ignore
+        subject_order=mhvars.ds1.plot_names_ordered,
+        # subject_order=["HSC", "Monocytes", "B cells"],
+        region_boundaries=None,
+        palette=mhstyle.hema_colors_ds1.plot_name_to_compartment_color_d,
+        # ylabel='test',
+        ylabel=None,
+        show_splines=True,
+        axes_title_position="right",
+        axes_title_size=6,
+        axes_title_rotation=0,
+        grid_lw=0.5,
+        grid_color="lightgray",
+        xlabel="Position (bp)",
+        n_xticklabels=5,
+        n_yticklabels=3,
+        bar_percent=0.01,
+        merge_bars=False,
+        # region_properties: Optional[pd.DataFrame] = None,
+        # dashes: Optional[Dict] = None,
+        # xticks: Optional[List[int]] = None,
+        # yticks_major: Optional[List[int]] = None,
+        # yticks_minor: Optional[List[int]] = None,
+        # ylim: Optional[Tuple[int]] = (0, 1),
+        # title: Optional[str] = None,
+        # region_boundaries_kws: Optional[Dict] = None,
+        # bp_padding=20,
+        # bar_percent: float = 0.01,
+    )
+
+    # axes_flat[-1].set_yticks([0.5])
+    # axes_flat[-1].set_yticklabels(['1.0'])
+
+
+    # axes_flat[-1].get_yticklabels()[-1].get_text() == '1.0'
+
+    fig.draw(fig.canvas.get_renderer())
+    s=axes_flat[-1].get_yticklabels()[-1].get_text()
+    print(s)
+
+    ticklabel_width = (
+        get_text_width_inch(
+            # s=axes_flat[-1].get_yticklabels()[-1].get_text(),
+            # s = s,
+            s = s,
+            size=6,
+            ax=axes_flat[-1]
+        )
+        * 72
+    )
+
+    print(ticklabel_width)
+    # get_text_width_inch('1.00', size=6, ax=axes_flat[-1])
+    labelpad= (
+        ticklabel_width
+        + mpl.rcParams["ytick.major.size"]
+        + mpl.rcParams["ytick.major.pad"]
+        + mpl.rcParams["axes.labelpad"]
+         )
+    big_ax.set_ylabel(ylabel, labelpad=labelpad)
+    ut.save_and_display(
+        fig,
+        png_path=mhpaths.project_temp_dir + "/asfsdf.png",
+        # additional_formats=tuple(),
+    )
+    # %%
+
+    # %%
+
+
+def get_text_width_inch(s, size, ax):
+    r = ax.figure.canvas.get_renderer()
+    # get window extent in display coordinates
+    artist = ax.text(0, 0, s, fontfamily='Arial', fontsize=size)
+    bbox = artist.get_window_extent(renderer=r)
+    data_coord_bbox = bbox.transformed(ax.figure.dpi_scale_trans.inverted())
+    artist.remove()
+    # data_coord_bbox.height
+    return data_coord_bbox.width
 
 
 @pytest.fixture()

@@ -39,7 +39,7 @@ Next steps
 """
 
 from copy import copy
-from typing import Optional, List, Union, Dict, Tuple
+from typing import Optional, List, Union, Dict, Tuple, Literal
 
 import matplotlib.text as mpltext
 import matplotlib as mpl
@@ -50,6 +50,8 @@ import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 import matplotlib.patches as patches
+import re
+import matplotlib.ticker as ticker
 
 import numpy as np
 import pandas as pd
@@ -353,17 +355,22 @@ def bar_plot(
     palette: Union[str, Dict[str, str]] = "Set1",
     dashes: Optional[Dict] = None,
     xticks: Optional[List[int]] = None,
-    yticks_major: Optional[List[int]] = None,
-    yticks_minor: Optional[List[int]] = None,
     ylim: Optional[Tuple[int]] = (0, 1),
     subject_order: Optional[List[str]] = None,
-    title: Optional[str] = None,
+    plot_title: Optional[str] = None,
+    axes_title_position: Literal["right", "top"] = "top",
     ylabel: str = "% Methylation",
     xlabel: str = "Position [bp]",
     region_boundaries: Optional[str] = "box",
     region_boundaries_kws: Optional[Dict] = None,
-    bp_padding=20,
     bar_percent: float = 0.01,
+    axes_title_size=6,
+    axes_title_rotation=270,
+    grid_lw=1,
+    grid_color="black",
+    n_xticklabels=4,
+    n_yticklabels=4,
+    merge_bars=False,
 ) -> None:
     """Draw bar plots (one row per subject) on List[Axes], optionally with profile lines
 
@@ -381,9 +388,10 @@ def bar_plot(
         xticks: if None, defaults to [Start, Middle, End] of ROI
         yticks_major: if None, defaults to
         yticks_minor: gridlines are shown for both yticks_major and yticks_minor, but ticklabels are only shown for yticksmajor.
-        bp_padding: padding at the plot ends (purely aesthetic function)
         bar_percent: width of bars in percent of Axes width
     """
+
+    beta_values.Chromosome = beta_values.Chromosome.astype(str)
 
     # Implementation notes
     # - a better default for xticks may be [Start ROI_start ROI_end End], ie:
@@ -404,54 +412,120 @@ def bar_plot(
         assert isinstance(palette, dict)
 
     # x limits and ticks
-    # Without padding, the boundary cpgs may be plotted only partially
-    xlim = (
-        beta_values.iloc[0]["Start"] - bp_padding,
-        beta_values.iloc[-1]["Start"] + bp_padding,
-    )
+    for ax in axes:
+        ax.margins(x=bar_percent)
     # default: three xticks: start, middle, end
-    if xticks is None:
-        xticks = np.linspace(beta_values.iloc[0, 1], beta_values.iloc[-1, 1], 3)
+    for ax in axes:
+        ax.xaxis.set_major_locator(
+            ticker.MaxNLocator(
+                # can get nicer distribution that way and having more ticks which fit is never bad
+                nbins=n_xticklabels,
+                min_n_ticks=n_xticklabels,
+                # steps=np.arange(1, 11),
+                integer=True,
+                prune=None,
+            )
+        )
+        ax.yaxis.set_major_locator(
+            ticker.MaxNLocator(
+                # can get nicer distribution that way and having more ticks which fit is never bad
+                nbins=n_yticklabels,
+                min_n_ticks=n_yticklabels,
+                # steps=np.arange(1, 11),
+                integer=True,
+                prune=None,
+            )
+        )
     if ylim is None:
         ylim = (0, 1)
-    if yticks_major is None:
-        yticks_major = np.linspace(0, 1, 5)
+    plt.setp(axes, ylim=ylim, ylabel=ylabel)
 
-    # only display xticks and xlabel in the bottom axes
-    # display yticks and ylabels everywhere
-    plt.setp(axes, ylim=ylim, ylabel=ylabel, xlim=xlim)
-    axes[-1].set(xticks=xticks, xlabel=xlabel)
-    if title is not None:
-        axes[0].set_title(title)
+    if plot_title is not None:
+        axes[0].set_title(plot_title)
     for ax in axes:
         sns.despine(ax=ax)
-        ax.grid(True, which="both", axis="y")
-        ax.set_yticks(yticks_major, minor=False)
-        ax.set_yticklabels(yticks_major, minor=False)
-        if yticks_minor is not None:
-            ax.set_yticks(yticks_minor, minor=True)
-            ax.set_yticklabels("", minor=True)
+        ax.grid(True, which="major", axis="y", lw=grid_lw, c=grid_color, zorder=0)
     for ax in axes[:-1]:
         ax.tick_params(axis="x", bottom=False, labelbottom=False)
 
-    if show_splines:
-        # connect (subject, pos, beta_value) data with smoothed splines
-        beta_value_lines = (
-            beta_values.groupby("subject", group_keys=False)
-            .apply(_smoothed_monotonic_spline)
-            .set_index("subject")
-        )
+
 
     # Create bar plots (one subject per Axes), with optional spline lines
     # To ensure visibility of the bars in small plots, they should cover at least one percent of the x axis
-    bar_width = (xlim[1] - xlim[0]) * bar_percent
+
+    # get integer bar width, make it even so that we can extend bar evenly on both sites of CpG dimer
+    if bar_percent is not None:
+        bar_width = np.round(
+            (beta_values["End"].max() - beta_values["Start"].min()) * bar_percent, 0
+        )
+        if bar_width % 2 != 0:
+            bar_width += 1
+        bar_width = int(bar_width)
+    else:
+        bar_width = 0
+
+    if (bar_percent is not None) and merge_bars:
+        # aggregate overlapping bars, prior to plotting
+        # (esp. also prior to spline computation and plotting)
+        # find all occuring intervals (some subjects may not provide data for all intervals)
+        # extend and cluster them
+
+        clustered_unique_intervals = (
+            pr.PyRanges(
+                beta_values[["Chromosome", "Start", "End"]]
+                .drop_duplicates()
+                .assign(
+                    Start_orig=lambda df: df.Start,
+                    End_orig=lambda df: df.End,
+                    Start=lambda df: df.Start - (bar_width / 2),
+                    End=lambda df: df.End + (bar_width / 2),
+                )
+            )
+            .cluster()
+            .df.assign(Chromosome=lambda df: df.Chromosome.astype(str))
+            .drop(["Start", "End"], axis=1)
+            .rename(columns={"Start_orig": "Start", "End_orig": "End"})
+        )
+
+        beta_values = beta_values.merge(
+            clustered_unique_intervals, on=["Chromosome", "Start", "End"], how="left"
+        )
+        assert beta_values["Cluster"].notnull().all()
+
+        beta_values = beta_values.groupby(["subject", "Cluster"]).agg(
+            {
+                "Chromosome": lambda ser: ser.iloc[0],
+                "Start": lambda ser: ser.min(),
+                "End": lambda ser: ser.max(),
+                "beta_value": "mean",
+            }
+        ).reset_index().drop(['Cluster'], axis=1)
+
+    # Must be done AFTER optional beta value aggregation
+    if show_splines:
+
+        spline_dfs = []
+        for subject, subject_df in beta_values.groupby('subject'):
+            # Start + 1 is necessary to align line with bars,
+            # even though bars are also plotted with edge at Start.
+            # Just do it for now, haven't investigated further.
+            pos_arr = (subject_df['Start'] - (bar_width / 2) + 1).values
+            pos_arr[-1] = subject_df['End'].iloc[-1] - 1 + (bar_width / 2)
+            spline_dfs.append(_smoothed_monotonic_spline2(
+                beta_value_ser=subject_df['beta_value'],
+                pos_arr=pos_arr,
+                subject=subject,
+                ).set_index('subject'))
+        beta_value_lines = pd.concat(spline_dfs)
+
     for i, (subject, group_df) in enumerate(beta_values.groupby("subject", sort=True)):
         axes[i].bar(
-            group_df["Start"],
+            x=group_df["Start"] - (bar_width / 2),
             height=group_df["beta_value"],
-            width=bar_width,
-            align="center",
+            width=group_df["End"] - group_df["Start"] + bar_width,
+            align="edge",
             color=palette[subject],
+            zorder=10,
         )
         if show_splines:
             view = beta_value_lines.loc[subject]
@@ -459,15 +533,21 @@ def bar_plot(
 
     # Add subject name as right margin title
     for subject, ax in zip(subject_order, axes):
-        ax.annotate(
-            subject,
-            xy=(1.02, 0.5),
-            xycoords="axes fraction",
-            rotation=270,
-            ha="left",
-            va="center",
-            backgroundcolor="white",
-        )
+        if axes_title_position == "top":
+            ax.set_title(subject)
+        elif axes_title_position == "right":
+            ax.annotate(
+                subject,
+                xy=(1.02, 0.5),
+                xycoords="axes fraction",
+                rotation=axes_title_rotation,
+                ha="left",
+                va="center",
+                backgroundcolor="white",
+                size=axes_title_size,
+            )
+        else:
+            raise NotImplementedError()
 
     # visualize region boundaries as Rectangle patch or with vlines
     if region_boundaries:
@@ -491,10 +571,27 @@ def bar_plot(
                     ):
                         ax.axvline(pos, **merged_region_boundaries_kws)
 
+    # Set Xaxis formatter with offset to deal with small intervals at a large offset somewhere in the genome
+    axes[-1].xaxis.set_major_formatter(MyScalarFormatter(useOffset=True))
+    # shift the xlabel position, because the offset label is currently not considered by constrained layout
+    # note that mpl.rcParams gives the current rcParams, ie it respects changes made by context managers such as mpl.rc_context
+    offset_text_size = mpl.rcParams["xtick.labelsize"] - 1
+    axes[-1].xaxis.get_offset_text().set_size(offset_text_size)
+    axes[-1].set_xlabel(
+        xlabel, labelpad=offset_text_size + mpl.rcParams["axes.labelsize"]
+    )
 
 
-
-
+# either there is a bug in ScalarFormatter, or I have an issue locally, perhaps with the locale?
+# anyhoo, I get trailing zeros in the offset label, and here is a quick fix for that:
+class MyScalarFormatter(ticker.ScalarFormatter):
+    def get_offset(self):
+        """
+        Return scientific notation, plus offset.
+        """
+        s = super().get_offset()
+        res = re.sub(r"0+e", "e", s.rstrip("0"))
+        return res
 
 
 def create_region_plots(
@@ -736,6 +833,55 @@ def _process_region_boundary_params(
         return None
 
 
+def _smoothed_monotonic_spline2(beta_value_ser: pd.Series, pos_arr, subject) -> pd.DataFrame:
+    """Interpolate (pos, beta_value) points with a smoothed cubic monotonic spline
+
+    The monotonic spline creates natural connection lines between the (pos, beta_value)
+    points. However, the transitions are not necessarily smooth, which makes visual assessment of
+    the plot more difficult. To improve  this, the splines are smoothed with a small gaussian kernel.
+
+    Args:
+        beta_value_df: must have columns Start (CpG watson position) and beta_value. Other columsn are ignored.
+
+    Returns:
+        pd.DataFrame, with predicted beta values for every bp between the start and end of the region,
+        columns: Start, subject, beta_value
+    """
+
+    # TODO: improve
+    # fill nan positions with linear intrapolation (and extrapolation if necessary)
+    # note that extrapolation with scipy.interpolate.interp1d only fills the closest default value
+    if beta_value_ser.isna().any():
+        print(
+            f"WARNING: input data contain NA values for {subject}. Using 1D interpolation prior to spline computation. Especially if NAs are present at the region boundaries, this can distort the profile."
+        )
+        beta_value_ser = beta_value_ser.interpolate(
+            "linear", fill_value="extrapolate"
+        )
+
+    # CpG positions are the observed /xin/ positions used to construct the spline
+    spline = interpolate.PchipInterpolator(
+        pos_arr, beta_value_ser.values, extrapolate=False
+    )
+    # beta value predictions are computed for every single base between the start and end point (/xout/)
+    xout = np.arange(pos_arr[0], pos_arr[-1] + 1)
+    beta_pred = spline(xout)
+
+    # the spline-based predictions are smoothed with small gaussian kernel to avoid sharp edges in the profile lines
+    gaussian_kernel = scipy.stats.norm.pdf(np.arange(-10, 11), 0, 3)
+    # need to normalize to 1
+    gaussian_kernel /= np.sum(gaussian_kernel)
+    beta_smoothed = convolve(beta_pred, gaussian_kernel, boundary="extend")
+
+    return pd.DataFrame(
+        dict(
+            Start=xout,
+            beta_value=beta_smoothed,
+            subject=subject,
+        )
+    )
+
+
 def _smoothed_monotonic_spline(beta_value_df: pd.DataFrame) -> pd.DataFrame:
     """Interpolate (pos, beta_value) points with a smoothed cubic monotonic spline
 
@@ -768,7 +914,7 @@ def _smoothed_monotonic_spline(beta_value_df: pd.DataFrame) -> pd.DataFrame:
         xin, beta_value_df["beta_value"].values, extrapolate=False
     )
     # beta value predictions are computed for every single base between the start and end point (/xout/)
-    xout = np.arange(xin[0], xin[-1])
+    xout = np.arange(xin[0], xin[-1] + 1)
     beta_pred = spline(xout)
 
     # the spline-based predictions are smoothed with small gaussian kernel to avoid sharp edges in the profile lines
