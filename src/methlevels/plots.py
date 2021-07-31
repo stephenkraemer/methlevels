@@ -69,6 +69,7 @@ from methlevels.utils import NamedColumnsSlice as ncls
 
 import matplotlib.patches as mpatches
 import matplotlib.collections
+import codaplot.utils as coutils
 
 
 _REGION_BOUNDARY_BOX_BASE_PARAMS = {"fill": "blue", "alpha": 0.2}
@@ -600,7 +601,7 @@ def bar_plot(
                         ax.axvline(pos, **merged_region_boundaries_kws)
 
     # Set Xaxis formatter with offset to deal with small intervals at a large offset somewhere in the genome
-    axes[-1].xaxis.set_major_formatter(MyScalarFormatter(useOffset=True))
+    axes[-1].xaxis.set_major_formatter(coutils.ScalarFormatterQuickfixed(useOffset=True))
     # shift the xlabel position, because the offset label is currently not considered by constrained layout
     # note that mpl.rcParams gives the current rcParams, ie it respects changes made by context managers such as mpl.rc_context
     offset_text_size = mpl.rcParams["xtick.labelsize"] - 1
@@ -610,16 +611,6 @@ def bar_plot(
     )
 
 
-# either there is a bug in ScalarFormatter, or I have an issue locally, perhaps with the locale?
-# anyhoo, I get trailing zeros in the offset label, and here is a quick fix for that:
-class MyScalarFormatter(ticker.ScalarFormatter):
-    def get_offset(self):
-        """
-        Return scientific notation, plus offset.
-        """
-        s = super().get_offset()
-        res = re.sub(r"0+e", "e", s.rstrip("0"))
-        return res
 
 
 def create_region_plots(
