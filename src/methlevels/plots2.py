@@ -1,5 +1,6 @@
 from copy import copy
 from typing import Optional, List, Union, Dict, Tuple
+import codaplot.utils as coutils
 
 import matplotlib.text as mpltext
 import matplotlib as mpl
@@ -28,8 +29,11 @@ from typing import Literal
 
 
 def plot_gene_model(
-    df,
-    ax,
+    df: pd.DataFrame,
+    ax: Axes,
+    xlabel: str,
+    order_of_magnitude: Optional[int] = None,
+    offset: Optional[Union[float, bool]] = None,
     roi: Optional[Tuple[float, float]] = None,
     rectangle_height=0.5,
     rectangle_height_utrs=0.25,
@@ -37,8 +41,6 @@ def plot_gene_model(
     arrow_length_perc_of_x_axis_size=0.01,
     arrow_height=0.15,
     gene_label_size=5,
-    bp_scale: Literal["bp", "Kb", "Mb"] = "bp",
-    format_str="{:.2f}",
 ):
     """Plot gene model
 
@@ -51,6 +53,10 @@ def plot_gene_model(
        other columns are ignored
         only rows representing transcript, exon and utr features will be used.
         other rows (eg gene features) are allowed, but will be ignored
+    order_of_magniture
+        if specified, forces scientific notations with this oom. you can only specify oom or offset
+    offset
+        if specified, forces offest notation. you can only specify oom or offset
     roi
         if None, axes limits are set to the minimum and maximum genomic position in df
         if set, can be used to zoom in. this is often useful, because the df will usually contain full feature intervals, but we may only be interest in the part of the intervals which overlaps with an roi
@@ -68,6 +74,11 @@ def plot_gene_model(
         respecting this distance
         given as fraction of the x axis length, ie it gives the length in axes coordinates
     """
+
+    if (offset is not None) and not offset:
+        offset = None
+
+    assert not (order_of_magnitude is not None) and (offset is not None)
 
     # we will set the axis limits to roi later, if not None
     # without a priori restricting the df to the roi,
@@ -126,21 +137,30 @@ def plot_gene_model(
     )
 
     _add_transcript_transcript_parts_and_arrows(
-        transcripts_sorted_by_start_and_length,
-        transcript_rows,
-        sorted_transcript_parts,
-        ax,
-        xmin,
-        xmax,
-        rectangle_height,
-        rectangle_height_utrs,
-        perc_of_axis_between_arrows,
-        arrow_length_perc_of_x_axis_size,
-        arrow_height,
-        gene_label_size,
-        bp_scale,
-        format_str,
+        transcripts_sorted_by_start_and_length=transcripts_sorted_by_start_and_length,
+        transcript_rows=transcript_rows,
+        sorted_transcript_parts=sorted_transcript_parts,
+        ax=ax,
+        xlabel=xlabel,
+        xmin=xmin,
+        xmax=xmax,
+        rectangle_height=rectangle_height,
+        rectangle_height_utrs=rectangle_height_utrs,
+        perc_of_axis_between_arrows=perc_of_axis_between_arrows,
+        arrow_length_perc_of_x_axis_size=arrow_length_perc_of_x_axis_size,
+        arrow_height=arrow_height,
+        gene_label_size=gene_label_size,
     )
+
+    # currently bug - does not remove trailing zeros from offset
+    # ax.xaxis.set_major_formatter(mticker.ScalarFormatterQuickfixed(useOffset=True))
+    ax.xaxis.set_major_formatter(coutils.ScalarFormatterQuickfixed(useOffset=True))
+    if offset and isinstance(offset, bool):
+        offset = coutils.find_offset(ax=ax)
+    if offset:
+        ax.ticklabel_format(axis='x', useOffset=offset)
+    if order_of_magnitude:
+        ax.ticklabel_format(axis='x', scilimits=(order_of_magnitude, order_of_magnitude))
 
 
 def get_text_width_data_coordinates(s, ax):
@@ -388,6 +408,7 @@ def _add_transcript_transcript_parts_and_arrows(
     transcript_rows,
     sorted_transcript_parts,
     ax,
+        xlabel,
     xmin,
     xmax,
     rectangle_height,
@@ -396,8 +417,6 @@ def _add_transcript_transcript_parts_and_arrows(
     arrow_length_perc_of_x_axis_size,
     arrow_height,
     gene_label_size,
-    bp_scale: Literal["bp", "Kb", "Mb"],
-    format_str,
 ):
 
     assert ax.get_xlim() == (xmin, xmax)
@@ -430,11 +449,8 @@ def _add_transcript_transcript_parts_and_arrows(
 
     # somehow the plotting code above resets this
     ax.set_ylim(-0.5 + (rectangle_height / 2), max(transcript_rows.values()) + 0.5)
-    ax.xaxis.set_major_formatter(
-        plt.FuncFormatter(_bp_ticklabel_format_func(bp_scale, format_str))
-    )
 
-    ax.set(xlabel=f"Position ({bp_scale})")
+    ax.set(xlabel=xlabel)
 
     # despine
     ax.tick_params(
@@ -448,12 +464,3 @@ def _add_transcript_transcript_parts_and_arrows(
         length=0,
     )
     ax.spines["left"].set_visible(False)
-
-
-def _bp_ticklabel_format_func(bp_scale, format_str):
-    def wrapped(value, tick_number):
-        return format_str.format(
-            value / {"bp": 1, "Kb": 1000, "Mb": 1_000_000}[bp_scale]
-        )
-
-    return wrapped

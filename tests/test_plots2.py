@@ -1,6 +1,13 @@
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.ticker as mticker
+import matplotlib.colors as mcolors
+import matplotlib as mpl
+
+
 import pyranges as pr
 
 import pandas as pd
@@ -188,7 +195,7 @@ def test_region_plot2():
 
     gs = gridspec.GridSpec(n_rows, 1, figure=fig, height_ratios=height_ratios)
 
-    axes = [fig.add_subplot(gs[i]) for i in range(n_rows)]
+    axes = np.array([fig.add_subplot(gs[i]) for i in range(n_rows)])
 
     big_ax = fig.add_subplot(gs[:n_main_plots], frameon=False)
     big_ax.tick_params(
@@ -211,13 +218,14 @@ def test_region_plot2():
         palette=mhstyle.hema_colors_ds1.plot_name_to_compartment_color_d,
         # ylabel='test',
         ylabel=None,
-        show_splines=False,
+        show_splines=True,
         axes_title_position="right",
         axes_title_size=6,
         axes_title_rotation=0,
         grid_lw=0.5,
         grid_color="lightgray",
         xlabel="Position (bp)",
+        offset=True,
         # xlim=(9857000, 9858000),
         # xticks=(9857000, 9857500, 9858000),
         n_xticklabels=5,
@@ -231,11 +239,18 @@ def test_region_plot2():
         # region_boundaries_kws: Optional[Dict] = None,
     )
 
-    # facet_grid_axes.add_y_marginlabel("Methylation (%)")
-
+    coutils.add_margin_label_via_encompassing_big_ax(
+        fig=fig,
+        axes=axes[:n_main_plots],
+        big_ax=big_ax,
+        axis="y",
+        label="Methylation (%)",
+    )
 
     plot_gene_model(
-        df=gencode_df2,
+        df=gencode_df,
+        offset=True,
+        xlabel="Position (bp)",
         ax=axes[-1],
         roi=(roi_start, roi_end),
         rectangle_height=0.4,
@@ -244,8 +259,6 @@ def test_region_plot2():
         arrow_length_perc_of_x_axis_size=0.01,
         arrow_height=0.1,
         gene_label_size=6,
-        bp_scale="Mb",
-        format_str="{:.3f}",
     )
 
     ut.save_and_display(

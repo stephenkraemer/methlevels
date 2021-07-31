@@ -359,21 +359,23 @@ def bar_plot(
     merge_bars=False,
     # line plot
     show_splines: bool = False,
-    # xticks
+    # xticks, xlabel
     n_xticklabels=4,
     xlim: Optional[Tuple[float, float]] = None,
     xticks: Optional[Union[List[float], np.ndarray, Tuple[float, ...]]] = None,
-    # yticks
+    order_of_magnitude: Optional[int] = None,
+    offset: Optional[Union[float, bool]] = None,
+    xlabel: Optional[str] = "Position (bp)",
+    # yticks, ylabel
     ylim: Optional[Tuple[float, float]] = (0, 1),
     yticks_major: Optional[Union[List[float], np.ndarray, Tuple[float, ...]]] = None,
     yticks_minor: Optional[Union[List[float], np.ndarray, Tuple[float, ...]]] = None,
     n_yticklabels=4,
+    ylabel: Optional[str] = "Methylation (%)",
     # grid
     grid_lw=1,
     grid_color="black",
-    # axes labels, title
-    ylabel: Optional[str] = "Methylation (%)",
-    xlabel: Optional[str] = "Position (bp)",
+    # axes title
     axes_title_position: Literal["right", "top"] = "top",
     axes_title_size=6,
     axes_title_rotation=270,
@@ -396,6 +398,10 @@ def bar_plot(
     show_splines: in addition to bar plots, draw interpolated and smoothed methylation profile lines
     subject_order: required if beta_values.columns is not categorical, to control subject plot order
     palette: either a palette name known to seaborn.color_palette or a dict mapping subject -> RGB color for all subjects
+    order_of_magniture
+        if specified, forces scientific notations with this oom. you can only specify oom or offset
+    offset
+        if specified, forces offest notation. you can only specify oom or offset
     region_properties: Dataframe describing the ROIs, with keys Chromosome Start End [other cols], one one row per ROI. The plot may show CpGs outside of the ROIs, and thus beta_values may contain CpGs outside of the ROIs. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
     region_boundaries: if not None, mark region boundaries in the plot. Possible values: 'box' -> draw a rectangle patch around the ROI. 'vlines': draw vertical lines
     region_boundaries_kws: passed to the function creating the region boundary visualization, eg patches.Rectangle or Axes.axvline
@@ -601,15 +607,27 @@ def bar_plot(
                     ):
                         ax.axvline(pos, **merged_region_boundaries_kws)
 
-    # Set Xaxis formatter with offset to deal with small intervals at a large offset somewhere in the genome
-    axes[-1].xaxis.set_major_formatter(coutils.ScalarFormatterQuickfixed(useOffset=True))
-    # shift the xlabel position, because the offset label is currently not considered by constrained layout
-    # note that mpl.rcParams gives the current rcParams, ie it respects changes made by context managers such as mpl.rc_context
+
+    last_ax = axes[-1]
+    # currently bug - does not remove trailing zeros from offset
+    # last_ax.xaxis.set_major_formatter(mticker.ScalarFormatterQuickfixed(useOffset=True))
+    last_ax.xaxis.set_major_formatter(coutils.ScalarFormatterQuickfixed(useOffset=True))
+    if offset and isinstance(offset, bool):
+        offset = coutils.find_offset(ax=last_ax)
+    if offset:
+        last_ax.ticklabel_format(axis='x', useOffset=offset)
+    if order_of_magnitude:
+        last_ax.ticklabel_format(axis='x', scilimits=(order_of_magnitude, order_of_magnitude))
+
     offset_text_size = mpl.rcParams["xtick.labelsize"] - 1
     axes[-1].xaxis.get_offset_text().set_size(offset_text_size)
-    axes[-1].set_xlabel(
-        xlabel, labelpad=offset_text_size + mpl.rcParams["axes.labelsize"]
-    )
+
+    # shift the xlabel position, because the offset label is currently not considered by constrained layout
+    # note that mpl.rcParams gives the current rcParams, ie it respects changes made by context managers such as mpl.rc_context
+    if xlabel is not None:
+        axes[-1].set_xlabel(
+            xlabel, labelpad=offset_text_size + mpl.rcParams["axes.labelsize"]
+        )
 
 
 
