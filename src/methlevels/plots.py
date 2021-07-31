@@ -350,53 +350,61 @@ def line_plot(
 def bar_plot(
     beta_values: pd.DataFrame,
     axes: Union[List, np.ndarray],
-    region_properties: Optional[pd.DataFrame] = None,
-    show_splines: bool = False,
-    palette: Union[str, Dict[str, str]] = "Set1",
-    dashes: Optional[Dict] = None,
-    xticks: Optional[List[int]] = None,
-    ylim: Optional[Tuple[int]] = (0, 1),
+    # subject order, colors
     subject_order: Optional[List[str]] = None,
-    plot_title: Optional[str] = None,
-    axes_title_position: Literal["right", "top"] = "top",
-    ylabel: Optional[str] = "Methylation (%)",
-    xlabel: Optional[str] = "Position (bp)",
-    region_boundaries: Optional[str] = "box",
-    region_boundaries_kws: Optional[Dict] = None,
+    palette: Union[str, Dict[str, str]] = "Set1",
+    # bar plot
     bar_percent: float = 0.01,
-    axes_title_size=6,
-    axes_title_rotation=270,
+    merge_bars=False,
+    # line plot
+    show_splines: bool = False,
+    # xticks
+    n_xticklabels=4,
+    xlim: Optional[Tuple[float, float]] = None,
+    xticks: Optional[Union[List[float], np.ndarray, Tuple[float, ...]]] = None,
+    # yticks
+    ylim: Optional[Tuple[float, float]] = (0, 1),
+    yticks_major: Optional[Union[List[float], np.ndarray, Tuple[float, ...]]] = None,
+    yticks_minor: Optional[Union[List[float], np.ndarray, Tuple[float, ...]]] = None,
+    n_yticklabels=4,
+    # grid
     grid_lw=1,
     grid_color="black",
-    n_xticklabels=4,
-    n_yticklabels=4,
-    merge_bars=False,
+    # axes labels, title
+    ylabel: Optional[str] = "Methylation (%)",
+    xlabel: Optional[str] = "Position (bp)",
+    axes_title_position: Literal["right", "top"] = "top",
+    axes_title_size=6,
+    axes_title_rotation=270,
+    # mark ROI
+    region_properties: Optional[pd.DataFrame] = None,
+    region_boundaries: Optional[str] = "box",
+    region_boundaries_kws: Optional[Dict] = None,
+    #
 ) -> None:
     """Draw bar plots (one row per subject) on List[Axes], optionally with profile lines
 
-    Args:
-        beta_values: long format df, columns: Chromosome Start End subject beta_value [other_col1, ...].
-        Columns is a scalar Index of subject names. If columns is not categorical, subject_order must be given.
-        axes: List[Axes] with one Axes per Subject
-        show_splines: in addition to bar plots, draw interpolated and smoothed methylation profile lines
-        subject_order: required if beta_values.columns is not categorical, to control subject plot order
-        palette: either a palette name known to seaborn.color_palette or a dict mapping subject -> RGB color for all subjects
-        dashes: optional Dict subject -> linestyle. Currently ignored, will be implemented later.
-        region_properties: Dataframe describing the ROIs, with keys Chromosome Start End [other cols], one one row per ROI. The plot may show CpGs outside of the ROIs, and thus beta_values may contain CpGs outside of the ROIs. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
-        region_boundaries: if not None, mark region boundaries in the plot. Possible values: 'box' -> draw a rectangle patch around the ROI. 'vlines': draw vertical lines
-        region_boundaries_kws: passed to the function creating the region boundary visualization, eg patches.Rectangle or Axes.axvline
-        xticks: if None, defaults to [Start, Middle, End] of ROI
-        yticks_major: if None, defaults to
-        yticks_minor: gridlines are shown for both yticks_major and yticks_minor, but ticklabels are only shown for yticksmajor.
-        bar_percent: width of bars in percent of Axes width
+    - the grid is drawn for both yticks_major and yticks_minor, but yticks_minor has no ticklabels
+
+    Parameters
+    ----------
+    beta_values
+        Chromosome Start End subject beta_value [other_col1, ...].
+        subject may be dtype str or categorical. if str, subject_order must be given
+    axes: Iterable with one Axes per Subject
+    show_splines: in addition to bar plots, draw interpolated and smoothed methylation profile lines
+    subject_order: required if beta_values.columns is not categorical, to control subject plot order
+    palette: either a palette name known to seaborn.color_palette or a dict mapping subject -> RGB color for all subjects
+    region_properties: Dataframe describing the ROIs, with keys Chromosome Start End [other cols], one one row per ROI. The plot may show CpGs outside of the ROIs, and thus beta_values may contain CpGs outside of the ROIs. region_properties specifies the original ROI boundaries, and is required when region_boundaries are visualized.
+    region_boundaries: if not None, mark region boundaries in the plot. Possible values: 'box' -> draw a rectangle patch around the ROI. 'vlines': draw vertical lines
+    region_boundaries_kws: passed to the function creating the region boundary visualization, eg patches.Rectangle or Axes.axvline
+    xticks: if not None, overrides n_xticklabels
+    yticks_major: if not None, overrides n_yticklabels
+    yticks_minor: if yticks_major is not None, overrides n_yticklabels
+    bar_percent: width of bars in percent of Axes width
     """
 
     beta_values.Chromosome = beta_values.Chromosome.astype(str)
-
-    # Implementation notes
-    # - a better default for xticks may be [Start ROI_start ROI_end End], ie:
-    #   xticks = [beta_values_tidy.iloc[0, 1], region_properties['Start'],
-    #             region_properties['End'], beta_values_tidy.iloc[-1, 1]
 
     # prepare/assert args and derived params
     merged_region_boundaries_kws = _process_region_boundary_params(
@@ -414,41 +422,54 @@ def bar_plot(
     # x limits and ticks
     for ax in axes:
         ax.margins(x=bar_percent)
-    # default: three xticks: start, middle, end
-    for ax in axes:
-        ax.xaxis.set_major_locator(
-            ticker.MaxNLocator(
-                # can get nicer distribution that way and having more ticks which fit is never bad
-                nbins=n_xticklabels,
-                min_n_ticks=n_xticklabels,
-                # steps=np.arange(1, 11),
-                integer=True,
-                prune=None,
+    if xticks is None:
+        for ax in axes:
+            ax.xaxis.set_major_locator(
+                ticker.MaxNLocator(
+                    # can get nicer distribution that way and having more ticks which fit is never bad
+                    nbins=n_xticklabels,
+                    min_n_ticks=n_xticklabels,
+                    # steps=np.arange(1, 11),
+                    integer=True,
+                    prune=None,
+                )
             )
-        )
-        ax.yaxis.set_major_locator(
-            ticker.MaxNLocator(
-                # can get nicer distribution that way and having more ticks which fit is never bad
-                nbins=n_yticklabels,
-                min_n_ticks=n_yticklabels,
-                # steps=np.arange(1, 11),
-                integer=True,
-                prune=None,
+    else:
+        for ax in axes:
+            ax.set_xticks(xticks)
+    if yticks_major is None:
+        for ax in axes:
+            ax.yaxis.set_major_locator(
+                ticker.MaxNLocator(
+                    # can get nicer distribution that way and having more ticks which fit is never bad
+                    nbins=n_yticklabels,
+                    min_n_ticks=n_yticklabels,
+                    # steps=np.arange(1, 11),
+                    integer=True,
+                    prune=None,
+                )
             )
-        )
-    if ylim is None:
-        ylim = (0, 1)
-    plt.setp(axes, ylim=ylim, ylabel=ylabel)
+    else:
+        for ax in axes:
+            ax.set_yticks(yticks_major)
+            ax.set_yticks(yticks_minor, minor=True)
+    if ylim is not None:
+        for ax in axes:
+            ax.set_ylim(ylim)
+    if xlim is not None:
+        for ax in axes:
+            ax.set_xlim(xlim)
 
-    if plot_title is not None:
-        axes[0].set_title(plot_title)
+    plt.setp(axes, ylabel=ylabel)
+
+    for ax in axes:
+        ax.tick_params(axis="y", which="minor", labelleft=False)
+
     for ax in axes:
         sns.despine(ax=ax)
-        ax.grid(True, which="major", axis="y", lw=grid_lw, c=grid_color, zorder=0)
+        ax.grid(True, which="both", axis="y", lw=grid_lw, c=grid_color, zorder=0)
     for ax in axes[:-1]:
         ax.tick_params(axis="x", bottom=False, labelbottom=False)
-
-
 
     # Create bar plots (one subject per Axes), with optional spline lines
     # To ensure visibility of the bars in small plots, they should cover at least one percent of the x axis
@@ -492,30 +513,37 @@ def bar_plot(
         )
         assert beta_values["Cluster"].notnull().all()
 
-        beta_values = beta_values.groupby(["subject", "Cluster"]).agg(
-            {
-                "Chromosome": lambda ser: ser.iloc[0],
-                "Start": lambda ser: ser.min(),
-                "End": lambda ser: ser.max(),
-                "beta_value": "mean",
-            }
-        ).reset_index().drop(['Cluster'], axis=1)
+        beta_values = (
+            beta_values.groupby(["subject", "Cluster"])
+            .agg(
+                {
+                    "Chromosome": lambda ser: ser.iloc[0],
+                    "Start": lambda ser: ser.min(),
+                    "End": lambda ser: ser.max(),
+                    "beta_value": "mean",
+                }
+            )
+            .reset_index()
+            .drop(["Cluster"], axis=1)
+        )
 
     # Must be done AFTER optional beta value aggregation
     if show_splines:
 
         spline_dfs = []
-        for subject, subject_df in beta_values.groupby('subject'):
+        for subject, subject_df in beta_values.groupby("subject"):
             # Start + 1 is necessary to align line with bars,
             # even though bars are also plotted with edge at Start.
             # Just do it for now, haven't investigated further.
-            pos_arr = (subject_df['Start'] - (bar_width / 2) + 1).values
-            pos_arr[-1] = subject_df['End'].iloc[-1] - 1 + (bar_width / 2)
-            spline_dfs.append(_smoothed_monotonic_spline2(
-                beta_value_ser=subject_df['beta_value'],
-                pos_arr=pos_arr,
-                subject=subject,
-                ).set_index('subject'))
+            pos_arr = (subject_df["Start"] - (bar_width / 2) + 1).values
+            pos_arr[-1] = subject_df["End"].iloc[-1] - 1 + (bar_width / 2)
+            spline_dfs.append(
+                _smoothed_monotonic_spline2(
+                    beta_value_ser=subject_df["beta_value"],
+                    pos_arr=pos_arr,
+                    subject=subject,
+                ).set_index("subject")
+            )
         beta_value_lines = pd.concat(spline_dfs)
 
     for i, (subject, group_df) in enumerate(beta_values.groupby("subject", sort=True)):
@@ -833,7 +861,9 @@ def _process_region_boundary_params(
         return None
 
 
-def _smoothed_monotonic_spline2(beta_value_ser: pd.Series, pos_arr, subject) -> pd.DataFrame:
+def _smoothed_monotonic_spline2(
+    beta_value_ser: pd.Series, pos_arr, subject
+) -> pd.DataFrame:
     """Interpolate (pos, beta_value) points with a smoothed cubic monotonic spline
 
     The monotonic spline creates natural connection lines between the (pos, beta_value)
@@ -855,9 +885,7 @@ def _smoothed_monotonic_spline2(beta_value_ser: pd.Series, pos_arr, subject) -> 
         print(
             f"WARNING: input data contain NA values for {subject}. Using 1D interpolation prior to spline computation. Especially if NAs are present at the region boundaries, this can distort the profile."
         )
-        beta_value_ser = beta_value_ser.interpolate(
-            "linear", fill_value="extrapolate"
-        )
+        beta_value_ser = beta_value_ser.interpolate("linear", fill_value="extrapolate")
 
     # CpG positions are the observed /xin/ positions used to construct the spline
     spline = interpolate.PchipInterpolator(
