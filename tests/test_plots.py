@@ -28,7 +28,7 @@ import codaplot.utils as coutils
 
 def test_plot_gene_model():
 
-    gencode_df_solution = pd.read_pickle(
+    gencode_df = pd.read_pickle(
         "/home/kraemers/projects/methlevels/tests/test-data/gencode_mm10_egf_region_bed-like-df.p"
     )
 
@@ -36,7 +36,7 @@ def test_plot_gene_model():
         1, 1, dpi=180, figsize=(16 / 2.54, 3 / 2.54), constrained_layout=True
     )
     plot_gene_model(
-        df=gencode_df_solution,
+        df=gencode_df,
         ax=ax,
         rectangle_height=0.4,
         rectangle_height_utrs=0.2,
@@ -53,11 +53,6 @@ def test_plot_gene_model():
 
 
 def test_barplot():
-
-    # dms_clustered_perc = get_meth_stats_for_granges_lib.DmrMethStatsDfs(
-    #     characterize_clustering_2_paths.clustered_only_dms_perc_base_path
-    # )
-    # dms_clustered_perc.dmr_betas
 
     dms_all = get_meth_stats_for_granges_lib.dmr_meth_stats_all_pops_no_qc_poplevel
 
@@ -77,12 +72,12 @@ def test_barplot():
 
     # %%
     facet_grid_axes = coutils.FacetGridAxes(
-        n_plots = plot_df.subject.nunique(),
-        n_cols = 1,
-        figsize = (ut.cm(5), ut.cm(15)),
-        constrained_layout_pads = dict(h_pad=0, w_pad=0.02, hspace=0, wspace=0),
-        figure_kwargs = dict(constrained_layout=True, dpi=180),
-        )
+        n_plots=plot_df.subject.nunique(),
+        n_cols=1,
+        figsize=(ut.cm(5), ut.cm(15)),
+        constrained_layout_pads=dict(h_pad=0, w_pad=0.02, hspace=0, wspace=0),
+        figure_kwargs=dict(constrained_layout=True, dpi=180),
+    )
 
     bar_plot(
         beta_values=plot_df,
@@ -107,13 +102,13 @@ def test_barplot():
         merge_bars=False,
         ylim=(0, 1),
         yticks_major=(0, 1),
-        yticks_minor=(0.5, ),
+        yticks_minor=(0.5,),
         n_yticklabels=3,
         # region_properties: Optional[pd.DataFrame] = None,
         # region_boundaries_kws: Optional[Dict] = None,
     )
 
-    facet_grid_axes.add_y_marginlabel('Methylation (%)')
+    facet_grid_axes.add_y_marginlabel("Methylation (%)")
 
     ut.save_and_display(
         facet_grid_axes.fig,

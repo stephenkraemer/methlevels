@@ -30,6 +30,7 @@ from typing import Literal
 def plot_gene_model(
     df,
     ax,
+    roi: Optional[Tuple[float, float]] = None,
     rectangle_height=0.5,
     rectangle_height_utrs=0.25,
     perc_of_axis_between_arrows=0.03,
@@ -37,7 +38,7 @@ def plot_gene_model(
     arrow_height=0.15,
     gene_label_size=5,
     bp_scale: Literal["bp", "Kb", "Mb"] = "bp",
-    format_str = '{:.2f}',
+    format_str="{:.2f}",
 ):
     """Plot gene model
 
@@ -50,6 +51,9 @@ def plot_gene_model(
        other columns are ignored
         only rows representing transcript, exon and utr features will be used.
         other rows (eg gene features) are allowed, but will be ignored
+    roi
+        if None, axes limits are set to the minimum and maximum genomic position in df
+        if set, can be used to zoom in. this is often useful, because the df will usually contain full feature intervals, but we may only be interest in the part of the intervals which overlaps with an roi
     rectangle_height
         height of exon rectangles, given as fraction of the distance between two transcript lines
     rectangle_height_utrs
@@ -64,6 +68,20 @@ def plot_gene_model(
         respecting this distance
         given as fraction of the x axis length, ie it gives the length in axes coordinates
     """
+
+    # we will set the axis limits to roi later, if not None
+    # without a priori restricting the df to the roi,
+    # constrained layout fails, haven't checked it further yet
+    if roi:
+        df = (
+            pr.PyRanges(df)
+            .intersect(
+                pr.PyRanges(
+                    chromosomes=[df.Chromosome.iloc[0]], starts=[roi[0]], ends=[roi[1]]
+                )
+            )
+            .df
+        )
 
     assert all(
         [
@@ -80,12 +98,21 @@ def plot_gene_model(
         ]
     )
 
+    print("Working with str")
+    df["Chromosome"] = df["Chromosome"].astype(str)
+    # bug in groupby-apply when df['Chromosome'].dtype == "category"
+    # generally, there where multiple categorical related bugs in the past, and we don't
+    # need a categorical here, so lets completely avoid it by working with strings
+
     transcripts_sorted_by_start_and_length = _get_sorted_transcripts(df)
     sorted_transcript_parts = _get_sorted_transcript_parts(df)
 
-    # Setting axis labels MUST be done before determining label sizes in next step (?)
-    xmin = transcripts_sorted_by_start_and_length.Start.min()
-    xmax = transcripts_sorted_by_start_and_length.End.max()
+    # Setting axis limits may have to be done before determining label sizes in next step (?)
+    if roi:
+        xmin, xmax = roi
+    else:
+        xmin = transcripts_sorted_by_start_and_length.Start.min()
+        xmax = transcripts_sorted_by_start_and_length.End.max()
     ax.set_xlim(xmin, xmax)
 
     transcripts_sorted_by_start_and_length_with_label_pos = (
@@ -250,16 +277,37 @@ def _get_sorted_transcripts(df):
 
 
 def _get_sorted_transcript_parts(df):
+
     transcript_parts_dfs = []
     for _unused, group_df in df.groupby("transcript_id"):  # type: ignore
-        gr_exons = pr.PyRanges(group_df.query('feature == "exon"'))
         gr_utrs = pr.PyRanges(group_df.query('"UTR" in feature'))
-        gr_exons = gr_exons.subtract(gr_utrs)
-        transcript_parts_dfs.append(pd.concat([gr_exons.df, gr_utrs.df], axis=0))
+        if not gr_utrs.empty:
+            gr_utrs_df = gr_utrs.df.assign(
+                Chromosome=lambda df: df["Chromosome"].astype(str),
+                Strand=lambda df: df["Strand"].astype(str),
+            )
+        else:
+            gr_utrs_df = pd.DataFrame()
+        gr_exons = pr.PyRanges(group_df.query('feature == "exon"'))
+        if not gr_exons.empty:
+            if not gr_utrs.empty:
+                gr_exons = gr_exons.subtract(gr_utrs)
+            if not gr_exons.empty:
+                gr_exons_df = gr_exons.df.assign(
+                    Chromosome=lambda df: df["Chromosome"].astype(str),
+                    Strand=lambda df: df["Strand"].astype(str),
+                )
+            else:
+                gr_exons_df = pd.DataFrame()
+        else:
+            gr_exons_df = pd.DataFrame()
+        transcript_parts_dfs.append(pd.concat([gr_exons_df, gr_utrs_df], axis=0))
 
     # transcript parts (exons, utrs) sorted by ascending Start per transcript
     transcript_parts_sorted = (
         pd.concat(transcript_parts_dfs, axis=0)
+        # [['Chromosome', 'Start', 'End', 'transcript_id']]
+        # .assign(Chromosome = lambda df: df.Chromosome.astype(str))
         .groupby("transcript_id")
         .apply(lambda df: df.sort_values(["Start", "End"]))
         .droplevel(-1)
@@ -348,8 +396,8 @@ def _add_transcript_transcript_parts_and_arrows(
     arrow_length_perc_of_x_axis_size,
     arrow_height,
     gene_label_size,
-    bp_scale: Literal["bp", "kb", "mb"],
-        format_str,
+    bp_scale: Literal["bp", "Kb", "Mb"],
+    format_str,
 ):
 
     assert ax.get_xlim() == (xmin, xmax)
@@ -407,4 +455,5 @@ def _bp_ticklabel_format_func(bp_scale, format_str):
         return format_str.format(
             value / {"bp": 1, "Kb": 1000, "Mb": 1_000_000}[bp_scale]
         )
+
     return wrapped

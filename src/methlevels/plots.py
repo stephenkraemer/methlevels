@@ -405,6 +405,7 @@ def bar_plot(
     bar_percent: width of bars in percent of Axes width
     """
 
+    beta_values = beta_values.copy()
     beta_values.Chromosome = beta_values.Chromosome.astype(str)
 
     # prepare/assert args and derived params

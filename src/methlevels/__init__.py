@@ -18,7 +18,6 @@ def assert_gr_index_contract(index):
 
 from .methstats import MethStats
 from .bed_calls import BedCalls
-from .plots import DMRPlot, grid_plot, line_plot, bar_plot, create_region_plots
+from .plots import grid_plot, line_plot, bar_plot, create_region_plots
 from .dmr_intervals import DMRIntervals
-
 import methlevels.recipes
