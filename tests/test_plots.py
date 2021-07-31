@@ -23,6 +23,7 @@ import mouse_hema_meth.methylome.alignments_mcalls.get_meth_stats_for_granges_li
 import mouse_hema_meth.methylome.clustering.characterize_clustering_2_paths as characterize_clustering_2_paths
 import mouse_hema_meth.shared_vars as mhvars
 import matplotlib.gridspec as gridspec
+import codaplot.utils as coutils
 
 
 def test_plot_gene_model():
@@ -75,58 +76,17 @@ def test_barplot():
     )
 
     # %%
-    n_plots = plot_df.subject.nunique()
-    n_cols = 1
-    figsize = (ut.cm(5), ut.cm(15))
-    ylabel = "Methylation (%)"
-    # xlabel = 'Position (bp)'
-    # skip_subplots = [(5, 1), (8, 1)]
-    skip_subplots = []
-
-    n_plots = n_plots + len(skip_subplots)
-    n_rows = int(np.ceil(n_plots / n_cols))
-
-    fig = plt.figure(constrained_layout=True, dpi=180, figsize=figsize)
-    fig.set_constrained_layout_pads(h_pad=0, w_pad=0.02, hspace=0, wspace=0)
-    gs = gridspec.GridSpec(n_rows, n_cols, figure=fig)
-    axes_flat = [
-        fig.add_subplot(gs[i, j])
-        for i in range(n_rows)
-        for j in range(n_cols)
-        if (i * n_cols + j + 1 <= n_plots) and (i, j) not in skip_subplots
-    ]
-    big_ax = fig.add_subplot(gs[:, :], frameon=False)
-    big_ax.tick_params(
-        axis="both",
-        which="both",
-        bottom=False,
-        left=False,
-        labelbottom=False,
-        labelleft=False,
-        labelsize=0,
-        length=0,
-    )
-    # big_ax.set_yticks([0.5])
-    # big_ax.set_yticklabels(['asdfasdfasfd'], zorder=0, color='white')
-    # big_ax.set_ylabel(ylabel)
-    # # plt.setp(big_ax.get_yticklabels(), visible=False)
-    # fig
-
-    # big_ax.set_xlabel(xlabel)
-
-    # fig, axes = plt.subplots(
-    #     plot_df.subject.nunique(),
-    #     1,
-    #     constrained_layout=True,
-    #     dpi=180,
-    #     figsize=(ut.cm(8), ut.cm(15)),
-    # )
-    # # the labels are a little cut off, why?
-    # fig.set_constrained_layout_pads(hspace=0, wspace=0, h_pad=0.01, w_pad=0.01)
+    facet_grid_axes = coutils.FacetGridAxes(
+        n_plots = plot_df.subject.nunique(),
+        n_cols = 1,
+        figsize = (ut.cm(5), ut.cm(15)),
+        constrained_layout_pads = dict(h_pad=0, w_pad=0.02, hspace=0, wspace=0),
+        figure_kwargs = dict(constrained_layout=True, dpi=180),
+        )
 
     bar_plot(
         beta_values=plot_df,
-        axes=axes_flat,  # type: ignore
+        axes=facet_grid_axes.axes_flat,
         subject_order=mhvars.ds1.plot_names_ordered,
         # subject_order=["HSC", "Monocytes", "B cells"],
         region_boundaries=None,
@@ -156,139 +116,99 @@ def test_barplot():
         # bar_percent: float = 0.01,
     )
 
-    # axes_flat[-1].set_yticks([0.5])
-    # axes_flat[-1].set_yticklabels(['1.0'])
+    facet_grid_axes.add_y_marginlabel('Methylation (%)')
 
-
-    # axes_flat[-1].get_yticklabels()[-1].get_text() == '1.0'
-
-    fig.draw(fig.canvas.get_renderer())
-    s=axes_flat[-1].get_yticklabels()[-1].get_text()
-    print(s)
-
-    ticklabel_width = (
-        get_text_width_inch(
-            # s=axes_flat[-1].get_yticklabels()[-1].get_text(),
-            # s = s,
-            s = s,
-            size=6,
-            ax=axes_flat[-1]
-        )
-        * 72
-    )
-
-    print(ticklabel_width)
-    # get_text_width_inch('1.00', size=6, ax=axes_flat[-1])
-    labelpad= (
-        ticklabel_width
-        + mpl.rcParams["ytick.major.size"]
-        + mpl.rcParams["ytick.major.pad"]
-        + mpl.rcParams["axes.labelpad"]
-         )
-    big_ax.set_ylabel(ylabel, labelpad=labelpad)
     ut.save_and_display(
-        fig,
+        facet_grid_axes.fig,
         png_path=mhpaths.project_temp_dir + "/asfsdf.png",
-        # additional_formats=tuple(),
+        additional_formats=tuple(),
     )
     # %%
 
-    # %%
+
+# not up to date
+# @pytest.fixture()
+# def meth_calls_df():
+#     meth_calls_df = read_csv_with_padding(
+#         """
+#         Subject    ,       ,     ,           , hsc    , hsc     , mpp4   , mpp4    , b-cells , b-cells
+#         Stat  ,       ,     ,           , n_meth , n_total , n_meth , n_total , n_meth  , n_total
+#         Chromosome , Start , End , region_id ,        ,         ,        ,         ,         ,
+#         1          , 10    , 12  , 0         , 10      , 10      , 30      , 30      , 20      , 20
+#         1          , 20    , 22  , 0         , 20      , 20      , 30      , 30      , 20      , 20
+#         1          , 22    , 24  , 0         , 30      , 30      , 10      , 20      , 0      , 20
+#         1          , 24    , 26  , 0         , 30      , 30      , 10      , 20      , 0      , 20
+#         1          , 30    , 32  , 0         , 30      , 30      , 20      , 20      , 10      , 20
+#         1          , 34    , 36  , 0         , 30      , 30      , 20      , 20      , 10      , 20
+#         1          , 44    , 46  , 0         , 30      , 20      , 10      , 10      , 20      , 20
+#         1          , 50    , 52  , 0         , 10      , 10      , 10      , 10      , 20      , 20
+#     """,
+#         header=[0, 1],
+#         index_col=[0, 1, 2, 3],
+#     )
+#     return meth_calls_df
 
 
-def get_text_width_inch(s, size, ax):
-    r = ax.figure.canvas.get_renderer()
-    # get window extent in display coordinates
-    artist = ax.text(0, 0, s, fontfamily='Arial', fontsize=size)
-    bbox = artist.get_window_extent(renderer=r)
-    data_coord_bbox = bbox.transformed(ax.figure.dpi_scale_trans.inverted())
-    artist.remove()
-    # data_coord_bbox.height
-    return data_coord_bbox.width
+# @pytest.mark.parametrize("segmented", [False, True])
+# @pytest.mark.parametrize("custom_region_part_col_name", [False, True])
+# @pytest.mark.parametrize("multiple_regions", [False, True])
+# def test_region_plot(
+#     tmpdir, meth_calls_df, segmented, custom_region_part_col_name, multiple_regions
+# ):
 
+#     tmpdir = Path(tmpdir)
 
-@pytest.fixture()
-def meth_calls_df():
-    meth_calls_df = read_csv_with_padding(
-        """
-        Subject    ,       ,     ,           , hsc    , hsc     , mpp4   , mpp4    , b-cells , b-cells
-        Stat  ,       ,     ,           , n_meth , n_total , n_meth , n_total , n_meth  , n_total
-        Chromosome , Start , End , region_id ,        ,         ,        ,         ,         ,
-        1          , 10    , 12  , 0         , 10      , 10      , 30      , 30      , 20      , 20
-        1          , 20    , 22  , 0         , 20      , 20      , 30      , 30      , 20      , 20
-        1          , 22    , 24  , 0         , 30      , 30      , 10      , 20      , 0      , 20
-        1          , 24    , 26  , 0         , 30      , 30      , 10      , 20      , 0      , 20
-        1          , 30    , 32  , 0         , 30      , 30      , 20      , 20      , 10      , 20
-        1          , 34    , 36  , 0         , 30      , 30      , 20      , 20      , 10      , 20
-        1          , 44    , 46  , 0         , 30      , 20      , 10      , 10      , 20      , 20
-        1          , 50    , 52  , 0         , 10      , 10      , 10      , 10      , 20      , 20
-    """,
-        header=[0, 1],
-        index_col=[0, 1, 2, 3],
-    )
-    return meth_calls_df
+#     if custom_region_part_col_name:
+#         region_id_col = "custom_region_id"
+#         region_part_col = "custom_region_part"
+#     else:
+#         region_part_col = "region_part"
+#         region_id_col = "region_id"
 
+#     if segmented:
+#         anno_df = pd.DataFrame(
+#             {
+#                 region_id_col: 0,
+#                 region_part_col: np.repeat("left_flank dmr dms right_flank".split(), 2),
+#             },
+#             index=meth_calls_df.index,
+#         )
+#     else:
+#         anno_df = pd.DataFrame(
+#             {
+#                 region_id_col: 0,
+#                 region_part_col: np.repeat("left_flank dmr dmr right_flank".split(), 2),
+#             },
+#             index=meth_calls_df.index,
+#         )
 
-@pytest.mark.parametrize("segmented", [False, True])
-@pytest.mark.parametrize("custom_region_part_col_name", [False, True])
-@pytest.mark.parametrize("multiple_regions", [False, True])
-def test_region_plot(
-    tmpdir, meth_calls_df, segmented, custom_region_part_col_name, multiple_regions
-):
+#     if multiple_regions:
+#         anno_df2 = anno_df.copy()
+#         anno_df2[region_id_col] = 1
+#         anno_df2.rename(index={0: 1}, inplace=True)
+#         anno_df = pd.concat([anno_df, anno_df2]).sort_index()
+#         meth_calls_df2 = meth_calls_df.copy()
+#         meth_calls_df2.rename({0: 1}, inplace=True)
+#         meth_calls_df2.loc[:, ncls(Stat="n_meth")] = (
+#             meth_calls_df2.loc[:, ncls(Stat="n_meth")] / 2
+#         )
+#         meth_calls_df = pd.concat([meth_calls_df, meth_calls_df2]).sort_index()
 
-    tmpdir = Path(tmpdir)
+#     meth_stats = ml.MethStats(meth_calls_df, anno_df)
 
-    if custom_region_part_col_name:
-        region_id_col = "custom_region_id"
-        region_part_col = "custom_region_part"
-    else:
-        region_part_col = "region_part"
-        region_id_col = "region_id"
+#     if custom_region_part_col_name:
+#         region_plot = ml.DMRPlot(
+#             meth_stats, region_part_col=region_part_col, region_id_col=region_id_col
+#         )
+#     else:
+#         region_plot = ml.DMRPlot(meth_stats)
 
-    if segmented:
-        anno_df = pd.DataFrame(
-            {
-                region_id_col: 0,
-                region_part_col: np.repeat("left_flank dmr dms right_flank".split(), 2),
-            },
-            index=meth_calls_df.index,
-        )
-    else:
-        anno_df = pd.DataFrame(
-            {
-                region_id_col: 0,
-                region_part_col: np.repeat("left_flank dmr dmr right_flank".split(), 2),
-            },
-            index=meth_calls_df.index,
-        )
-
-    if multiple_regions:
-        anno_df2 = anno_df.copy()
-        anno_df2[region_id_col] = 1
-        anno_df2.rename(index={0: 1}, inplace=True)
-        anno_df = pd.concat([anno_df, anno_df2]).sort_index()
-        meth_calls_df2 = meth_calls_df.copy()
-        meth_calls_df2.rename({0: 1}, inplace=True)
-        meth_calls_df2.loc[:, ncls(Stat="n_meth")] = (
-            meth_calls_df2.loc[:, ncls(Stat="n_meth")] / 2
-        )
-        meth_calls_df = pd.concat([meth_calls_df, meth_calls_df2]).sort_index()
-
-    meth_stats = ml.MethStats(meth_calls_df, anno_df)
-
-    if custom_region_part_col_name:
-        region_plot = ml.DMRPlot(
-            meth_stats, region_part_col=region_part_col, region_id_col=region_id_col
-        )
-    else:
-        region_plot = ml.DMRPlot(meth_stats)
-
-    for highlighted_subjects in [None, ["mpp4"], ["hsc", "mpp4"]]:
-        region_plot.grid_plot(
-            tmpdir,
-            "mpp4-dmrs",
-            highlighted_subjects=highlighted_subjects,
-            bp_width_100=8,
-            row_height=1,
-            bp_padding=10,
-        )
+#     for highlighted_subjects in [None, ["mpp4"], ["hsc", "mpp4"]]:
+#         region_plot.grid_plot(
+#             tmpdir,
+#             "mpp4-dmrs",
+#             highlighted_subjects=highlighted_subjects,
+#             bp_width_100=8,
+#             row_height=1,
+#             bp_padding=10,
+#         )

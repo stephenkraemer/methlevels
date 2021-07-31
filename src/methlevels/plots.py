@@ -349,7 +349,7 @@ def line_plot(
 
 def bar_plot(
     beta_values: pd.DataFrame,
-    axes: List[Axes],
+    axes: Union[List, np.ndarray],
     region_properties: Optional[pd.DataFrame] = None,
     show_splines: bool = False,
     palette: Union[str, Dict[str, str]] = "Set1",
@@ -359,8 +359,8 @@ def bar_plot(
     subject_order: Optional[List[str]] = None,
     plot_title: Optional[str] = None,
     axes_title_position: Literal["right", "top"] = "top",
-    ylabel: str = "% Methylation",
-    xlabel: str = "Position [bp]",
+    ylabel: Optional[str] = "Methylation (%)",
+    xlabel: Optional[str] = "Position (bp)",
     region_boundaries: Optional[str] = "box",
     region_boundaries_kws: Optional[Dict] = None,
     bar_percent: float = 0.01,
