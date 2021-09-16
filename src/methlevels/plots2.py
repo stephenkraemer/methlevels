@@ -41,10 +41,9 @@ def plot_gene_model(
     arrow_length_perc_of_x_axis_size=0.01,
     arrow_height=0.15,
     gene_label_size=5,
+    y_bottom_margin=-0.5,
 ):
     """Plot gene model
-
-
 
     Parameters
     ----------
@@ -74,6 +73,11 @@ def plot_gene_model(
         algorithm will decide for each intron individually how many arrows can be placed while
         respecting this distance
         given as fraction of the x axis length, ie it gives the length in axes coordinates
+    y_bottom_margin
+        preliminary solution to avoid problems with feature labels overlapping the x axis (?)
+        transcripts are centered around y=0.5, 1.5, ...
+        ylim max is set to max row, e.g. 1.5 + rectangle_height / 2
+        ylim min is set to y_bottom_margin, e.g. -0.5, to give some margin at the bottom of the plot. adjust depending on plot size. this should be better automated in the future
     """
 
     if (offset is not None) and not offset:
@@ -151,6 +155,7 @@ def plot_gene_model(
         arrow_length_perc_of_x_axis_size=arrow_length_perc_of_x_axis_size,
         arrow_height=arrow_height,
         gene_label_size=gene_label_size,
+        y_bottom_margin=y_bottom_margin,
     )
 
     _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)
@@ -424,6 +429,7 @@ def _add_transcript_transcript_parts_and_arrows(
     arrow_length_perc_of_x_axis_size,
     arrow_height,
     gene_label_size,
+    y_bottom_margin,
 ):
 
     assert ax.get_xlim() == (xmin, xmax)
@@ -455,7 +461,7 @@ def _add_transcript_transcript_parts_and_arrows(
         )
 
     # somehow the plotting code above resets this
-    ax.set_ylim(-0.5 + (rectangle_height / 2), max(transcript_rows.values()) + 0.5)
+    ax.set_ylim(y_bottom_margin + (rectangle_height / 2), max(transcript_rows.values()) + rectangle_height / 2)
 
     ax.set(xlabel=xlabel)
 
@@ -480,7 +486,7 @@ def plot_genomic_region_track(
     offset: Optional[Union[float, bool]] = None,
     no_coords=False,
     roi: Optional[Tuple[int, int]] = None,
-    color: Optional[Union[str, Tuple]] = None,
+    color: Union[str, Tuple] = 'gray',
     palette: Optional[Dict[str, str]] = None,
     show_names=False,
     ax_abs_height: Optional[float] = None,
@@ -509,8 +515,10 @@ def plot_genomic_region_track(
         size of Axes in inch, to allow fitting the region labels into the plot
         required if show_names = True
     roi: optionally, zoom into the data by using xlim = roi
-    color, palette
-        optional either i) color = specify single color for all regions ii) palette = optional dict mapping region name -> hex color
+    color
+        default color
+    palette
+        optional dict mapping region name -> hex color, may also only contain some of the region names, then fallback is color
     show_names
         show text label below each region with a name in the name column. regions without name value do not get a label without error.
     label_size
@@ -526,14 +534,6 @@ def plot_genomic_region_track(
 
     label_padding_in = 0.1 / 2.54
 
-    if color:
-        assert palette is None
-    if palette:
-        assert color is None
-        assert (
-            np.array(list(sorted(palette.keys())))
-            == np.sort(granges_gr.df["name"].unique())
-        ).all()
     if show_names:
         assert ax_abs_height is not None
 
@@ -570,14 +570,16 @@ def plot_genomic_region_track(
     rectangles = []
     for _unused, row_ser in granges_df.iterrows():  # type: ignore
         if palette:
-            color = palette[row_ser["name"]]
+            curr_color = palette.get(row_ser["name"], color)
+        else:
+            curr_color = color
         rectangles.append(
             mpatches.Rectangle(  # type: ignore
                 xy=(row_ser.Start, 1 - ax_fraction_for_rectangles),
                 width=row_ser.End - row_ser.Start,
                 height=ax_fraction_for_rectangles,
                 linewidth=0,
-                color=color,
+                color=curr_color,
             )
         )
         if show_names:

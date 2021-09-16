@@ -8,26 +8,38 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 import matplotlib as mpl
 from methlevels.plot_utils import cm
-from methlevels.plots2 import plot_gene_model
+from methlevels.plots2 import plot_gene_model, plot_genomic_region_track
 from methlevels.plots import bar_plot
 import codaplot.utils as coutils
 import pyranges as pr
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Union, Any
+
+print('reloaded 1')
 
 
 def region_plot(
     beta_values_gr: pr.PyRanges,
-    gencode_gr: pr.PyRanges,
     chrom: str,
     start: int,
     end: int,
     subject_order: List[str],
-    palette: Dict[str, str],
-    anno_plots_abs_sizes: Tuple[float, ...],
     figsize: Tuple[float, float],
+    gene_axes_size: float = 1,
+    anno_axes_size: float = 0.5,
+    h_pad=0,
+    anno_axes_padding: float = 0.02,
+    palette: Optional[Dict[str, str]] = None,
+    gencode_gr: Optional[pr.PyRanges] = None,
+    genomic_regions: Optional[Dict[str, pr.PyRanges]] = None,
+        gene_model_kwargs: Optional[Dict] = None,
+    plot_genomic_region_track_kwargs: Optional[Dict[str, Dict[str, Any]]] = None,
+    offset: Union[float, bool] = True,
+    debug=False,
 ):
     """Plot methylation in region with annotations
 
+    Parameters
+    ----------
     beta_values_gr
         cpg methylation levels with CpG coordinates
         one column per subject with beta values in dataframe
@@ -42,11 +54,30 @@ def region_plot(
         specify region to show in plot; this is also useful for 'zooming in' during interactive plotting
     subject_order
         determines subject order in methlevels plot
+    color
+        default color for methlevel plots
+    h_pad
+        passed to constrained_layout. 0 will often be best, argument may be removed in the future
+    anno_axes_padding
+        padding between anno_axes and between anno_axes and surrounding axes
     palette
         maps subject_name -> subject_color (hex code)
-    anno_plots_abs_sizes
-        absolute size in inch for each individual annotation axes as Tuple[float, ...], e.g. (cm(5), cm(3))
+        supersedes color
+    gene_axes_size
+        size in inch for the gene anno axes (if present)
+    anno_axes_size
+        size in inch for each individual annotation axes (if present)
     figsize
+    offset
+        if specified, forces offest notation.
+        either specify True for automatic offset detection or a float
+    genomic_regions
+        dict track_name -> PyRanges of non-overlapping intervals
+    plot_genomic_region_track_args
+        dict track_name -> kwargs for plot_genomic_region_tracks
+        optional, can also define for some tracks and not for others
+    debug
+        if True, plot x axis for all plots to make sure they align
     """
 
     plot_df = pd.melt(
@@ -57,22 +88,32 @@ def region_plot(
     )
 
     gencode_df = gencode_gr["11", start:end].df.loc[  # type: ignore
-            lambda df: df["Feature"].isin(["transcript", "exon", "UTR"])
-        ]
+        lambda df: df["Feature"].isin(["transcript", "exon", "UTR"])
+    ]
+
+    if not plot_genomic_region_track_kwargs:
+        plot_genomic_region_track_kwargs = {}
 
     n_main_plots = plot_df.subject.nunique()
-    fig, axes, big_ax = _setup_region_plot_figure(
+    n_annos = len(genomic_regions) if genomic_regions is not None else 0
+
+    # %%
+    fig, axes_d = _setup_region_plot_figure(
         n_main_plots,
-        anno_plots_abs_sizes=anno_plots_abs_sizes,
+        gene_axes_size=gene_axes_size if gencode_gr else 0,
+        anno_axes_size=anno_axes_size,
+        anno_axes_padding=anno_axes_padding,
+        n_annos=n_annos,
         figsize=figsize,
+        h_pad=h_pad,
     )
 
     bar_plot(
         beta_values=plot_df,
-        axes=axes[:n_main_plots],
+        axes=axes_d["methlevels"],
         subject_order=subject_order,
         region_boundaries=None,
-        palette=palette,
+        palette=palette,  # type: ignore
         # ylabel='test',
         ylabel=None,
         show_splines=True,
@@ -82,7 +123,7 @@ def region_plot(
         grid_lw=0.5,
         grid_color="lightgray",
         xlabel="Position (bp)",
-        offset=True,
+        offset=offset,
         # xlim=(9857000, 9858000),
         # xticks=(9857000, 9857500, 9858000),
         n_xticklabels=5,
@@ -96,35 +137,108 @@ def region_plot(
         # region_boundaries_kws: Optional[Dict] = None,
     )
 
+    # Remove x axis labels if there is any annotation plot below (which will provide the coordinates, unless we are debugging this plot
+    if genomic_regions or gencode_gr and not debug:
+        axes_d["methlevels"][-1].tick_params(
+            axis="x",
+            which="both",
+            bottom=False,
+            labelbottom=False,
+            labelsize=0,
+            length=0,
+        )
+        axes_d["methlevels"][-1].set_xlabel(None)
+
+    if genomic_regions:
+
+        genomic_regions_subsetted = {
+            name: gr[chrom, start:end] for name, gr in genomic_regions.items()
+        }
+
+        for i, (ax, (track_name, gr)) in enumerate(
+            zip(axes_d["annos"], genomic_regions_subsetted.items())
+        ):
+            if gr.empty:
+                print(f"WARNING {track_name} has no intervals in the ROI")
+                continue
+            if debug:
+                no_coords = False
+            elif (i == len(genomic_regions)) and (not gencode_gr):
+                no_coords = False
+            else:
+                no_coords = True
+            plot_genomic_region_track(
+                gr,
+                ax,
+                offset=offset,
+                roi=(start, end),
+                ax_abs_height=anno_axes_size,
+                label_size=6,
+                ymargin=0.05,
+                no_coords=no_coords,
+                **plot_genomic_region_track_kwargs.get(track_name, {}),
+            )
+
+        for ax in axes_d['spacer_axes']:
+            ax.plot([start, end], [0, 0])
+            ax.plot([start, end], [1, 1])
+
     plot_gene_model(
         df=gencode_df,
-        offset=True,
+        offset=offset,
         xlabel="Position (bp)",
-        ax=axes[-1],
+        ax=axes_d["gene_anno"],
         roi=(start, end),
-        rectangle_height=0.4,
-        rectangle_height_utrs=0.2,
-        perc_of_axis_between_arrows=0.03,
-        arrow_length_perc_of_x_axis_size=0.01,
-        arrow_height=0.1,
-        gene_label_size=6,
+        **gene_model_kwargs,
     )
+    # %%
 
-    return fig, axes, big_ax
+    return fig, axes_d
 
 
-def _setup_region_plot_figure(n_main_plots, anno_plots_abs_sizes, figsize):
+# %%
+def _setup_region_plot_figure(
+    n_main_plots,
+    gene_axes_size,
+    anno_axes_size,
+    anno_axes_padding,
+    n_annos,
+    figsize,
+    h_pad,
+):
+    """
+    Parameters
+    ----------
+    n_main_plots
+        number of subplots in methlevels plot, one per subject
+    gene_axes_size
+        size in inch of gene model plot, 0 if not plotted
+    anno_axes_size
+        size (inch) of each anno subplot, None if not plotted
+    """
 
-    n_rows = n_main_plots + len(anno_plots_abs_sizes)
+    n_anno_paddings = 2 + n_annos - 1
+    n_rows = n_main_plots + bool(gene_axes_size) + n_annos + n_anno_paddings
     fig = plt.figure(constrained_layout=True, dpi=180, figsize=figsize)
-    fig.set_constrained_layout_pads(h_pad=0, w_pad=0.02, hspace=0, wspace=0)
+    fig.set_constrained_layout_pads(h_pad=h_pad, w_pad=0, hspace=0, wspace=0)
 
     height_ratio_main_axes = (
-        (figsize[1] - sum(anno_plots_abs_sizes)) / n_main_plots / figsize[1]
+        (
+            figsize[1]
+            - gene_axes_size
+            - anno_axes_size * n_annos
+            - figsize[1] * anno_axes_padding * n_anno_paddings
+        )
+        / n_main_plots
+        / figsize[1]
     )
-    height_ratios = [height_ratio_main_axes] * n_main_plots + (
-        np.array(anno_plots_abs_sizes) / figsize[1]
-    ).tolist()
+    anno_axes_ratio = anno_axes_size / figsize[1]
+    height_ratios = (
+        [height_ratio_main_axes] * n_main_plots
+        + [anno_axes_padding]
+        + [anno_axes_ratio, anno_axes_padding] * n_annos
+        + [gene_axes_size / figsize[1]] * bool(gene_axes_size)
+    )
     assert np.isclose(sum(height_ratios), 1)
 
     gs = gridspec.GridSpec(n_rows, 1, figure=fig, height_ratios=height_ratios)
@@ -151,7 +265,25 @@ def _setup_region_plot_figure(n_main_plots, anno_plots_abs_sizes, figsize):
         label="Methylation (%)",
     )
 
-    return fig, axes, big_ax
+    methlevel_axes = axes[:n_main_plots]
+    anno_axes = axes[(n_main_plots + 1) : (n_main_plots + n_annos * 2) : 2] if n_annos else None
+    print(anno_axes)
+    gene_anno_axes = axes[-1] if gene_axes_size else None
+    if n_annos:
+        spacer_axes = axes[n_main_plots : (n_main_plots + n_annos * 2 + 1) : 2]
+        for ax in spacer_axes:
+            coutils.strip_all_axis(ax)
+    else:
+        spacer_axes = None
+
+    return fig, {
+        "methlevels": methlevel_axes,
+        "annos": anno_axes,
+        "gene_anno": gene_anno_axes,
+        "spacer_axes": spacer_axes,
+        "methlevel_ylabel": big_ax,
+    }
+# %%
 
 
 def restrict_to_primary_transcript_if_multiple_transcripts_are_present(gencode_df):

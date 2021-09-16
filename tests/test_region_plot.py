@@ -1,4 +1,5 @@
 from pathlib import Path
+from io import StringIO
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -54,6 +55,9 @@ def get_cpg_betas_gr():
 
     ds1_metadata_table = pd.read_csv(ds1_metadata_table_tsv, sep="\t", header=0)
 
+    roi_start = 19_018_985 - 1000
+    roi_end = 19_018_985 + 5000
+
     hierarchy_bed_calls_ds1 = ml.BedCalls(
         metadata_table=ds1_metadata_table,
         tmpdir=mhpaths.project_temp_dir,
@@ -105,19 +109,27 @@ def get_cpg_betas_gr():
         "/home/kraemers/projects/methlevels/tests/test-data/cpg-betas.tsv", sep="\t"
     )
 
+    dms_plot.cpg_annos.to_csv(
+        "/home/kraemers/projects/methlevels/tests/test-data/cpg-annos.tsv", sep="\t"
+    )
+
 
 def test_region_plot():
 
-    beta_values = pd.read_csv(
+    cpg_betas = pd.read_csv(
         "/home/kraemers/projects/methlevels/tests/test-data/cpg-betas.tsv", sep="\t"
     )
+    cpg_annos = pd.read_csv(
+        "/home/kraemers/projects/methlevels/tests/test-data/cpg-annos.tsv", sep="\t"
+    )
+
     beta_values_gr = pr.PyRanges(
         pd.concat(
             [
-                dms_plot.cpg_annos[["Chromosome", "Start", "End"]],
-                dms_plot.cpg_betas.rename(
-                    columns=mhvars.ds1.nice_names_to_plot_names_d
-                )[mhvars.ds1.plot_names_ordered],
+                cpg_annos[["Chromosome", "Start", "End"]],
+                cpg_betas.rename(columns=mhvars.ds1.nice_names_to_plot_names_d)[
+                    mhvars.ds1.plot_names_ordered
+                ],
             ],
             axis=1,
         )
@@ -127,27 +139,80 @@ def test_region_plot():
         "/omics/odcf/analysis/OE0219_projects/mouse_hematopoiesis/databases/gene_annotations"
         "/gencode.vM19.annotation.no-prefix.gtf"
     )
-
     gencode_df = pr.read_gtf(gtf_fp, duplicate_attr=True, as_df=True)
     gencode_df = restrict_to_primary_transcript_if_multiple_transcripts_are_present(
         gencode_df
     )
     gencode_gr = pr.PyRanges(gencode_df)
 
-    fig, axes, big_ax = region_plot(
-        beta_values_gr,
-        gencode_gr,
+    granges_gr_1 = pr.PyRanges(
+        pd.read_csv(
+            StringIO(
+                """
+Chromosome Start End name
+11 100 300 name1
+11 1250 1300 name2
+11 2000 3000 name3
+    """
+            ),
+            sep=" ",
+        ).assign(
+            Start=lambda df: df.Start + 19_018_985, End=lambda df: df.End + 19_018_985
+        )
+    )
+    granges_gr_2 = pr.PyRanges(
+        pd.read_csv(
+            StringIO(
+                """
+Chromosome Start End name
+11 100 300 NAME1
+11 1250 1300 NAME2
+11 2000 3000 NAME3
+    """
+            ),
+            sep=" ",
+        ).assign(
+            Start=lambda df: df.Start + 19_018_985 + 200,
+            End=lambda df: df.End + 19_018_985 + 200,
+        )
+    )
+
+    fig, axes_d = region_plot(
+        beta_values_gr=beta_values_gr,
+        gencode_gr=gencode_gr,
+        genomic_regions={"track1": granges_gr_1, "track2": granges_gr_2},
+        plot_genomic_region_track_kwargs={
+            "track1": {
+                "palette": {"name1": "red"},
+                "color": "blue",
+                "show_names": True,
+            },
+            "track2": {"color": "red"},
+        },
         chrom="11",
         start=19_018_985 - 1000,
         end=19_018_985 + 5000,
+        offset=True,
         subject_order=mhvars.ds1.plot_names_ordered,
         palette=mhstyle.hema_colors_ds1.plot_name_to_compartment_color_d,
-        anno_plots_abs_sizes=(cm(5),),
-        figsize=(cm(15), cm(25)),
+        anno_axes_size=cm(0.5),
+        gene_axes_size=cm(1.5),
+        anno_axes_padding=0.02,
+        figsize=(cm(15), cm(20)),
+        gene_model_kwargs=dict(
+            rectangle_height=0.4,
+            rectangle_height_utrs=0.2,
+            perc_of_axis_between_arrows=0.03,
+            arrow_length_perc_of_x_axis_size=0.01,
+            arrow_height=0.1,
+            gene_label_size=6,
+            y_bottom_margin=-0.2,
+        ),
+        debug=False,
     )
-
     ut.save_and_display(
         fig,
-        png_path=mhpaths.project_temp_dir + "/asfsdf.png",
+        png_path=mhpaths.project_temp_dir + "/asfsdf.svg",
         # additional_formats=tuple(),
     )
+    a = 3
