@@ -49,7 +49,7 @@ def plot_gene_model(
     Parameters
     ----------
     df
-       required columns: 'Chromosome', 'feature', 'Start', 'End', 'Strand', 'transcript_id', 'gene_name'
+       required columns: 'Chromosome', 'Feature', 'Start', 'End', 'Strand', 'transcript_id', 'gene_name'
        other columns are ignored
         only rows representing transcript, exon and utr features will be used.
         other rows (eg gene features) are allowed, but will be ignored
@@ -99,7 +99,7 @@ def plot_gene_model(
             x in df.columns
             for x in [
                 "Chromosome",
-                "feature",
+                "Feature",
                 "Start",
                 "End",
                 "Strand",
@@ -218,8 +218,8 @@ def _plot_transcript_parts(
 ):
     rectangles = []
     for _unused, row_ser in df.iterrows():
-        print(row_ser.feature)
-        if "UTR" not in row_ser.feature:
+        print(row_ser.Feature)
+        if "UTR" not in row_ser.Feature:
             rectangles.append(
                 mpatches.Rectangle(  # type: ignore
                     xy=(row_ser.Start, row - (rectangle_height / 2)),
@@ -288,7 +288,7 @@ def _plot_transcript_parts(
 def _get_sorted_transcripts(df):
     # sort start ascending, length descending (by sorting negative length)
     transcripts_sorted_by_start_and_length = (
-        df.query('feature == "transcript"')
+        df.query('Feature == "transcript"')
         .assign(length_neg=lambda df: -(df.End - df.Start))
         .sort_values(["Start", "length_neg"])
         .set_index("transcript_id")
@@ -300,7 +300,7 @@ def _get_sorted_transcript_parts(df):
 
     transcript_parts_dfs = []
     for _unused, group_df in df.groupby("transcript_id"):  # type: ignore
-        gr_utrs = pr.PyRanges(group_df.query('"UTR" in feature'))
+        gr_utrs = pr.PyRanges(group_df.query('"UTR" in Feature'))
         if not gr_utrs.empty:
             gr_utrs_df = gr_utrs.df.assign(
                 Chromosome=lambda df: df["Chromosome"].astype(str),
@@ -308,7 +308,7 @@ def _get_sorted_transcript_parts(df):
             )
         else:
             gr_utrs_df = pd.DataFrame()
-        gr_exons = pr.PyRanges(group_df.query('feature == "exon"'))
+        gr_exons = pr.PyRanges(group_df.query('Feature == "exon"'))
         if not gr_exons.empty:
             if not gr_utrs.empty:
                 gr_exons = gr_exons.subtract(gr_utrs)
@@ -334,7 +334,7 @@ def _get_sorted_transcript_parts(df):
     )
 
     n_utr_and_exons_features_expected = (
-        df.query('feature == "exon" or "UTR" in feature')
+        df.query('Feature == "exon" or "UTR" in Feature')
         .drop_duplicates(subset=["Chromosome", "Start", "End", "transcript_id"])
         .shape[0]
     )
