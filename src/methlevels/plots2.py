@@ -1,5 +1,4 @@
-from copy import copy
-from typing import Optional, List, Union, Dict, Tuple
+from typing import Optional, Union, Dict, Tuple
 import codaplot.utils as coutils
 
 import matplotlib.text as mpltext
@@ -22,6 +21,7 @@ import pyranges as pr
 
 from methlevels import MethStats
 from methlevels.utils import NamedColumnsSlice as ncls
+
 
 import matplotlib.patches as mpatches
 import matplotlib.collections
@@ -55,6 +55,7 @@ def plot_gene_model(
         other rows (eg gene features) are allowed, but will be ignored
     order_of_magniture
         if specified, forces scientific notations with this oom. you can only specify oom or offset
+        **NOTE** this feature may be untested
     offset
         if specified, forces offest notation. you can only specify oom or offset
     roi
@@ -78,13 +79,13 @@ def plot_gene_model(
     if (offset is not None) and not offset:
         offset = None
 
-    assert not (order_of_magnitude is not None) and (offset is not None)
+    assert not ((order_of_magnitude is not None) and (offset is not None))
 
     # we will set the axis limits to roi later, if not None
     # without a priori restricting the df to the roi,
     # constrained layout fails, haven't checked it further yet
     if roi:
-        df = (
+        df = (  # type: ignore
             pr.PyRanges(df)
             .intersect(
                 pr.PyRanges(
@@ -152,15 +153,21 @@ def plot_gene_model(
         gene_label_size=gene_label_size,
     )
 
+    _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)
+
+
+def _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude):
     # currently bug - does not remove trailing zeros from offset
     # ax.xaxis.set_major_formatter(mticker.ScalarFormatterQuickfixed(useOffset=True))
     ax.xaxis.set_major_formatter(coutils.ScalarFormatterQuickfixed(useOffset=True))
     if offset and isinstance(offset, bool):
         offset = coutils.find_offset(ax=ax)
     if offset:
-        ax.ticklabel_format(axis='x', useOffset=offset)
+        ax.ticklabel_format(axis="x", useOffset=offset)  # type: ignore
     if order_of_magnitude:
-        ax.ticklabel_format(axis='x', scilimits=(order_of_magnitude, order_of_magnitude))
+        ax.ticklabel_format(
+            axis="x", scilimits=(order_of_magnitude, order_of_magnitude)
+        )
 
 
 def get_text_width_data_coordinates(s, ax):
@@ -408,7 +415,7 @@ def _add_transcript_transcript_parts_and_arrows(
     transcript_rows,
     sorted_transcript_parts,
     ax,
-        xlabel,
+    xlabel,
     xmin,
     xmax,
     rectangle_height,
@@ -464,3 +471,134 @@ def _add_transcript_transcript_parts_and_arrows(
         length=0,
     )
     ax.spines["left"].set_visible(False)
+
+
+def plot_genomic_region_track(
+    granges_gr,
+    ax,
+    order_of_magnitude: Optional[int] = None,
+    offset: Optional[Union[float, bool]] = None,
+    no_coords=False,
+    roi: Optional[Tuple[int, int]] = None,
+    color: Optional[Union[str, Tuple]] = None,
+    palette: Optional[Dict[str, str]] = None,
+    show_names=False,
+    ax_abs_height: Optional[float] = None,
+    label_size=6,
+    ymargin=0.05,
+):
+    """Plot a single, non-overlapping set of genomic regions onto an Axes
+
+    optionally, place names below some of the regions
+
+    Parameters
+    ----------
+    granges_gr
+        columns: if show_names: name. name column may contain empty rows, indicated by '' or np.nan or None
+        this is expected to be restricted to the ROI to be plottet
+        the start/end args allow setting xlim to zoom in, but the chromosome must already be unique in this input dataframe
+    ax
+    order_of_magniture
+        if specified, forces scientific notations with this oom. you can only specify oom or offset
+        **NOTE** this feature may be untested
+    offset
+        if specified, forces offest notation. you can only specify oom or offset
+    no_coords
+        if True, the x axis is not shown (default). the y axis is never shown.
+    ax_abs_size
+        size of Axes in inch, to allow fitting the region labels into the plot
+        required if show_names = True
+    roi: optionally, zoom into the data by using xlim = roi
+    color, palette
+        optional either i) color = specify single color for all regions ii) palette = optional dict mapping region name -> hex color
+    show_names
+        show text label below each region with a name in the name column. regions without name value do not get a label without error.
+    label_size
+        size of the region name label (for show_names = True, otherwise ignored)
+    ymargin
+        margin between plot elements and axis as percentage of axes (aesthetic parameter which may be interesting to adjust the look at different plot sizes)
+
+    """
+
+    if (offset is not None) and not offset:
+        offset = None
+    assert not ((order_of_magnitude is not None) and (offset is not None))
+
+    label_padding_in = 0.1 / 2.54
+
+    if color:
+        assert palette is None
+    if palette:
+        assert color is None
+        assert (
+            np.array(list(sorted(palette.keys())))
+            == np.sort(granges_gr.df["name"].unique())
+        ).all()
+    if show_names:
+        assert ax_abs_height is not None
+
+    if show_names:
+        label_height_in = label_size * 1 / 72
+        ax_fraction_for_rectangles = (
+            1 - ymargin - (label_height_in + label_padding_in) / ax_abs_height
+        )
+    else:
+        ax_fraction_for_rectangles = 1 - ymargin
+
+    if roi:
+        granges_df = granges_gr[roi[0] : roi[1]].df
+    else:
+        granges_df = granges_gr.df
+        roi = granges_df["Start"].min(), granges_df["End"].max()
+    ax.set_xlim(roi)
+
+    ax.set(ylim=(0, 1))
+
+    if no_coords:
+        coutils.strip_all_axis(ax)
+    else:
+        ax.tick_params(
+            axis="y",
+            which="both",
+            left=False,
+            labelleft=False,
+            labelsize=0,
+            length=0,
+        )
+        ax.spines["left"].set_visible(False)
+
+    rectangles = []
+    for _unused, row_ser in granges_df.iterrows():  # type: ignore
+        if palette:
+            color = palette[row_ser["name"]]
+        rectangles.append(
+            mpatches.Rectangle(  # type: ignore
+                xy=(row_ser.Start, 1 - ax_fraction_for_rectangles),
+                width=row_ser.End - row_ser.Start,
+                height=ax_fraction_for_rectangles,
+                linewidth=0,
+                color=color,
+            )
+        )
+        if show_names:
+            if row_ser["name"]:
+                # place text in middle of displayed region, not in middle of full interval, parts of which may lie outside of displayed region
+                ax.text(
+                    x=min(row_ser["End"], roi[1])
+                    - (
+                        (min(row_ser["End"], roi[1]) - max(row_ser["Start"], roi[0]))
+                        / 2
+                    ),
+                    y=ymargin,
+                    s=row_ser["name"],
+                    ha="center",
+                    va="bottom",
+                    size=label_size,
+                )
+    ax.add_collection(
+        matplotlib.collections.PatchCollection(
+            rectangles, match_original=True, zorder=3
+        ),
+    )
+
+    _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)

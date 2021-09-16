@@ -1,6 +1,8 @@
 from pathlib import Path
+from io import StringIO
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import pyranges as pr
 
 import pandas as pd
 import numpy as np
@@ -11,7 +13,12 @@ from methlevels.utils import (
     read_csv_with_padding,
 )
 from methlevels.utils import NamedColumnsSlice as ncls
-from methlevels.plots2 import plot_gene_model, get_text_width_data_coordinates
+from methlevels.plot_utils import cm
+from methlevels.plots2 import (
+    plot_gene_model,
+    get_text_width_data_coordinates,
+    plot_genomic_region_track,
+)
 from methlevels.plots import bar_plot
 
 import mouse_hema_meth.styling as mhstyle
@@ -35,8 +42,8 @@ def test_plot_gene_model():
     fig, ax = plt.subplots(
         1, 1, dpi=180, figsize=(16 / 2.54, 3 / 2.54), constrained_layout=True
     )
-        # bp_scale="Mb",
-        # format_str="{:.3f}",
+    # bp_scale="Mb",
+    # format_str="{:.3f}",
     plot_gene_model(
         df=gencode_df,
         offset=True,
@@ -116,6 +123,66 @@ def test_barplot():
         png_path=mhpaths.project_temp_dir + "/asfsdf.png",
         additional_formats=tuple(),
     )
+    # %%
+
+
+def test_plot_genomic_region_track():
+
+    # %%
+    fig, axes = plt.subplots(
+        1, 3, constrained_layout=True, dpi=180, figsize=(cm(8), cm(3))
+    )
+    fig.set_constrained_layout_pads(hspace=0, wspace=0, h_pad=0, w_pad=0)
+
+    granges_gr = pr.PyRanges(
+        pd.read_csv(
+            StringIO(
+                """
+Chromosome Start End name
+1 100 200 name1
+1 250 300 name2
+1 380 400 name3
+    """
+            ),
+            sep=" ",
+        ).assign(Start=lambda df: df.Start + 110_000_000, End = lambda df: df.End + 110_000_000)
+    )
+
+    # single color, no labels, no zoom, no explicit offset/order of magnitude
+    plot_genomic_region_track(
+        granges_gr=granges_gr,
+        ax=axes[0],
+        color="blue",
+        show_names=False,
+    )
+
+    # palette, with labels, with zoom, no x axis
+    plot_genomic_region_track(
+        granges_gr=granges_gr,
+        ax=axes[1],
+        roi=(110_000_000 + 260, 110_000_000 + 410),
+        palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
+        show_names=True,
+        ax_abs_height=cm(3),
+        label_size=6,
+        no_coords=True,
+    )
+
+    # palette, with labels, with zoom, with x axis, adjusted y margin, offset
+    plot_genomic_region_track(
+        granges_gr=granges_gr,
+        ax=axes[2],
+        roi=(110_000_000 + 260, 110_000_000 + 410),
+        palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
+        show_names=True,
+        ax_abs_height=cm(3),
+        label_size=6,
+        no_coords=False,
+        ymargin=0.1,
+        offset=109_900_000
+    )
+
+    fig
     # %%
 
 
