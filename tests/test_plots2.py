@@ -41,7 +41,7 @@ def test_region_plot2():
 
     # dms_all = get_meth_stats_for_granges_lib.dmr_meth_stats_all_pops_no_qc_poplevel
     gtf_fp = (
-        "/icgc/dkfzlsdf/analysis/hs_ontogeny/databases/gene_annotations"
+        "/omics/odcf/analysis/OE0219_projects/mouse_hematopoiesis/databases/gene_annotations"
         "/gencode.vM19.annotation.no-prefix.gtf"
     )
 
@@ -53,78 +53,85 @@ def test_region_plot2():
     # roi_start = 18_879_817
     # roi_end = 19_018_985
 
-    "tabix /omics/odcf/analysis/OE0219_projects/mouse_hematopoiesis/results/wgbs/results_per_pid/v1_bistro-0.2.0_odcf-alignment/hsc_1/meth/meth_calls/mcalls_hsc_1_CG_chrom-merged_strands-merged.bed.gz 11:18879817-19018985 | wc -l"
+    if recompute:
 
-    # ===
+        "tabix /omics/odcf/analysis/OE0219_projects/mouse_hematopoiesis/results/wgbs/results_per_pid/v1_bistro-0.2.0_odcf-alignment/hsc_1/meth/meth_calls/mcalls_hsc_1_CG_chrom-merged_strands-merged.bed.gz 11:18879817-19018985 | wc -l"
 
-    from mouse_hema_meth.methylome.alignments_mcalls.meth_calling_paths import (
-        ds1_metadata_table_tsv,
-    )
+        # ===
 
-    ds1_metadata_table = pd.read_csv(ds1_metadata_table_tsv, sep="\t", header=0)
+        from mouse_hema_meth.methylome.alignments_mcalls.meth_calling_paths import (
+            ds1_metadata_table_tsv,
+        )
 
-    hierarchy_bed_calls_ds1 = ml.BedCalls(
-        metadata_table=ds1_metadata_table,
-        tmpdir=mhpaths.project_temp_dir,
-        pop_order=mhvars.ds1.all_pops,
-        beta_value_col=6,
-        n_meth_col=7,
-        n_total_col=8,
-    )
+        ds1_metadata_table = pd.read_csv(ds1_metadata_table_tsv, sep="\t", header=0)
 
-    """
-            intervals_df: must start with Chromosome, Start, End, region_id.
-                Must be sorted by grange cols. region_id most be monotonic increasing.
-                Chromosome column should be categorical of strings. If it is only str dtype,
-                it will be (internally) converted to categorical, using the given order of chromosomes.
-                The original dataframe remains unchanged.
-                Optionally, annotation columns may be added to the intervals df.
-                They will be added to the results (available through anno df of
-                the returned MethStats object).
-                The interval df may contain overlapping intervals, duplicate intervals and emtpy intervals (containing no CpGs).
-                If the interval df contains duplicate or overlapping genomic intervals (shared CpGs), it must contain
-                one or more additional index variables, so that the complete index
-                if fully unique. These additional index variables must be distinguished
-                from annotation variables by passing them via /additional_index_cols/
-            elements: whether to save the result to the elements slots of the resulting MethStats object.
-                This will almost always be wanted - probably remove this option later.
-    """
+        hierarchy_bed_calls_ds1 = ml.BedCalls(
+            metadata_table=ds1_metadata_table,
+            tmpdir=mhpaths.project_temp_dir,
+            pop_order=mhvars.ds1.all_pops,
+            beta_value_col=6,
+            n_meth_col=7,
+            n_total_col=8,
+        )
 
-    intervals = pd.DataFrame(
-        {"Chromosome": ["11"], "Start": [roi_start], "End": [roi_end], "region_id": [0]}
-    )
-    n_cores = 12
+        """
+                intervals_df: must start with Chromosome, Start, End, region_id.
+                    Must be sorted by grange cols. region_id most be monotonic increasing.
+                    Chromosome column should be categorical of strings. If it is only str dtype,
+                    it will be (internally) converted to categorical, using the given order of chromosomes.
+                    The original dataframe remains unchanged.
+                    Optionally, annotation columns may be added to the intervals df.
+                    They will be added to the results (available through anno df of
+                    the returned MethStats object).
+                    The interval df may contain overlapping intervals, duplicate intervals and emtpy intervals (containing no CpGs).
+                    If the interval df contains duplicate or overlapping genomic intervals (shared CpGs), it must contain
+                    one or more additional index variables, so that the complete index
+                    if fully unique. These additional index variables must be distinguished
+                    from annotation variables by passing them via /additional_index_cols/
+                elements: whether to save the result to the elements slots of the resulting MethStats object.
+                    This will almost always be wanted - probably remove this option later.
+        """
 
-    get_ms_results_dir = mhpaths.project_temp_dir + "/mlr-test"
-    Path(get_ms_results_dir).mkdir(exist_ok=True)
-    import methlevels.recipes
+        intervals = pd.DataFrame(
+            {"Chromosome": ["11"], "Start": [roi_start], "End": [roi_end], "region_id": [0]}
+        )
+        n_cores = 12
 
-    methstats_paths_d = methlevels.recipes.compute_meth_stats(
-        bed_calls=hierarchy_bed_calls_ds1,
-        intervals=intervals,
-        result_dir=get_ms_results_dir,
-        filter_args=None,
-        root_subject="hsc",
-        result_name_prefix="arbitrary",
-        result_name_suffix="",
-        cores=n_cores,
-    )
+        get_ms_results_dir = mhpaths.project_temp_dir + "/mlr-test"
+        Path(get_ms_results_dir).mkdir(exist_ok=True)
+        import methlevels.recipes
 
-    # Load pop level methstats
-    methstats_pops: ml.MethStats = ut.from_pickle(
-        methstats_paths_d["per-subject"]["meth_stats_obj"]
-    )
-    # assert that no qc filtering was done accidentally
-    assert methstats_pops.counts.shape[0] == intervals.shape[0]
+        methstats_paths_d = methlevels.recipes.compute_meth_stats(
+            bed_calls=hierarchy_bed_calls_ds1,
+            intervals=intervals,
+            result_dir=get_ms_results_dir,
+            filter_args=None,
+            root_subject="hsc",
+            result_name_prefix="arbitrary",
+            result_name_suffix="",
+            cores=n_cores,
+        )
 
-    dms_plot = get_meth_stats_for_granges_lib.DmrMethStatsDfs(
-        mhpaths.project_temp_dir + "/asfasdfasdf"
-    )
+        # Load pop level methstats
+        methstats_pops: ml.MethStats = ut.from_pickle(
+            methstats_paths_d["per-subject"]["meth_stats_obj"]
+        )
+        # assert that no qc filtering was done accidentally
+        assert methstats_pops.counts.shape[0] == intervals.shape[0]
 
-    print("save pop level meth stats dfs")
-    get_meth_stats_for_granges_lib.methstats_to_dfs(
-        methstats=methstats_pops, results=dms_plot
-    )
+        dms_plot = get_meth_stats_for_granges_lib.DmrMethStatsDfs(
+            mhpaths.project_temp_dir + "/asfasdfasdf"
+        )
+
+        print("save pop level meth stats dfs")
+        get_meth_stats_for_granges_lib.methstats_to_dfs(
+            methstats=methstats_pops, results=dms_plot
+        )
+    else:
+        dms_plot = get_meth_stats_for_granges_lib.DmrMethStatsDfs(
+            mhpaths.project_temp_dir + "/asfasdfasdf"
+        )
+
 
     dms_plot.cpg_betas
 

@@ -35,21 +35,22 @@ def test_plot_gene_model():
     fig, ax = plt.subplots(
         1, 1, dpi=180, figsize=(16 / 2.54, 3 / 2.54), constrained_layout=True
     )
+        # bp_scale="Mb",
+        # format_str="{:.3f}",
     plot_gene_model(
         df=gencode_df,
+        offset=True,
+        xlabel="Position (bp)",
         ax=ax,
+        # roi=(roi_start, roi_end),
         rectangle_height=0.4,
         rectangle_height_utrs=0.2,
         perc_of_axis_between_arrows=0.03,
         arrow_length_perc_of_x_axis_size=0.01,
         arrow_height=0.1,
         gene_label_size=6,
-        bp_scale="Mb",
-        format_str="{:.3f}",
     )
     ut.save_and_display(fig, png_path=mhpaths.project_temp_dir + "/asfsdf.png")
-
-    fig.savefig("/home/kraemers/temp/test.svg")
 
 
 def test_barplot():
