@@ -179,7 +179,7 @@ Chromosome Start End name
 
     fig, axes_d = region_plot(
         beta_values_gr=beta_values_gr,
-        gencode_gr=gencode_gr,
+        gene_anno_gr=gencode_gr,
         genomic_regions={"track1": granges_gr_1, "track2": granges_gr_2},
         plot_genomic_region_track_kwargs={
             "track1": {
@@ -215,4 +215,3 @@ Chromosome Start End name
         png_path=mhpaths.project_temp_dir + "/asfsdf.svg",
         # additional_formats=tuple(),
     )
-    a = 3

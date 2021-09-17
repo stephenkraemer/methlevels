@@ -14,12 +14,12 @@ from methlevels.utils import (
 )
 from methlevels.utils import NamedColumnsSlice as ncls
 from methlevels.plot_utils import cm
-from methlevels.plots2 import (
+from methlevels.plot_genomic import (
     plot_gene_model,
     get_text_width_data_coordinates,
     plot_genomic_region_track,
 )
-from methlevels.plots import bar_plot
+from methlevels.plot_methlevels import bar_plot
 
 import mouse_hema_meth.styling as mhstyle
 

@@ -114,7 +114,6 @@ def plot_gene_model(
         ]
     )
 
-    print("Working with str")
     df["Chromosome"] = df["Chromosome"].astype(str)
     # bug in groupby-apply when df['Chromosome'].dtype == "category"
     # generally, there where multiple categorical related bugs in the past, and we don't
@@ -230,7 +229,6 @@ def _plot_transcript_parts(
 ):
     rectangles = []
     for _unused, row_ser in df.iterrows():
-        print(row_ser.Feature)
         if "UTR" not in row_ser.Feature:
             rectangles.append(
                 mpatches.Rectangle(  # type: ignore

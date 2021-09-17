@@ -14,7 +14,7 @@ import codaplot.utils as coutils
 import pyranges as pr
 from typing import List, Dict, Tuple, Optional, Union, Any
 
-print('reloaded 1')
+print("reloaded 1")
 
 
 def region_plot(
@@ -29,9 +29,9 @@ def region_plot(
     h_pad=0,
     anno_axes_padding: float = 0.02,
     palette: Optional[Dict[str, str]] = None,
-    gencode_gr: Optional[pr.PyRanges] = None,
+    gene_anno_gr: Optional[pr.PyRanges] = None,
     genomic_regions: Optional[Dict[str, pr.PyRanges]] = None,
-        gene_model_kwargs: Optional[Dict] = None,
+    gene_model_kwargs: Optional[Dict[str, Any]] = None,
     plot_genomic_region_track_kwargs: Optional[Dict[str, Dict[str, Any]]] = None,
     offset: Union[float, bool] = True,
     debug=False,
@@ -87,7 +87,7 @@ def region_plot(
         value_name="beta_value",
     )
 
-    gencode_df = gencode_gr["11", start:end].df.loc[  # type: ignore
+    gencode_df = gene_anno_gr["11", start:end].df.loc[  # type: ignore
         lambda df: df["Feature"].isin(["transcript", "exon", "UTR"])
     ]
 
@@ -100,7 +100,7 @@ def region_plot(
     # %%
     fig, axes_d = _setup_region_plot_figure(
         n_main_plots,
-        gene_axes_size=gene_axes_size if gencode_gr else 0,
+        gene_axes_size=gene_axes_size if gene_anno_gr else 0,
         anno_axes_size=anno_axes_size,
         anno_axes_padding=anno_axes_padding,
         n_annos=n_annos,
@@ -138,7 +138,7 @@ def region_plot(
     )
 
     # Remove x axis labels if there is any annotation plot below (which will provide the coordinates, unless we are debugging this plot
-    if genomic_regions or gencode_gr and not debug:
+    if genomic_regions or gene_anno_gr and not debug:
         axes_d["methlevels"][-1].tick_params(
             axis="x",
             which="both",
@@ -163,7 +163,7 @@ def region_plot(
                 continue
             if debug:
                 no_coords = False
-            elif (i == len(genomic_regions)) and (not gencode_gr):
+            elif (i == len(genomic_regions)) and (not gene_anno_gr):
                 no_coords = False
             else:
                 no_coords = True
@@ -178,10 +178,6 @@ def region_plot(
                 no_coords=no_coords,
                 **plot_genomic_region_track_kwargs.get(track_name, {}),
             )
-
-        for ax in axes_d['spacer_axes']:
-            ax.plot([start, end], [0, 0])
-            ax.plot([start, end], [1, 1])
 
     plot_gene_model(
         df=gencode_df,
@@ -266,7 +262,9 @@ def _setup_region_plot_figure(
     )
 
     methlevel_axes = axes[:n_main_plots]
-    anno_axes = axes[(n_main_plots + 1) : (n_main_plots + n_annos * 2) : 2] if n_annos else None
+    anno_axes = (
+        axes[(n_main_plots + 1) : (n_main_plots + n_annos * 2) : 2] if n_annos else None
+    )
     print(anno_axes)
     gene_anno_axes = axes[-1] if gene_axes_size else None
     if n_annos:
@@ -283,6 +281,8 @@ def _setup_region_plot_figure(
         "spacer_axes": spacer_axes,
         "methlevel_ylabel": big_ax,
     }
+
+
 # %%
 
 
