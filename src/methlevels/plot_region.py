@@ -8,13 +8,13 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 import matplotlib as mpl
 from methlevels.plot_utils import cm
-from methlevels.plots2 import plot_gene_model, plot_genomic_region_track
-from methlevels.plots import bar_plot
+from methlevels.plot_genomic import plot_gene_model, plot_genomic_region_track
+from methlevels.plot_methlevels import bar_plot
 import codaplot.utils as coutils
 import pyranges as pr
 from typing import List, Dict, Tuple, Optional, Union, Any
 
-print("reloaded 1")
+print("reloaded plot_region")
 
 
 def region_plot(
@@ -24,11 +24,11 @@ def region_plot(
     end: int,
     subject_order: List[str],
     figsize: Tuple[float, float],
+        bar_plot_kwargs: Optional[Dict[str, Any]] = None,
     gene_axes_size: float = 1,
     anno_axes_size: float = 0.5,
     h_pad=0,
     anno_axes_padding: float = 0.02,
-    palette: Optional[Dict[str, str]] = None,
     gene_anno_gr: Optional[pr.PyRanges] = None,
     genomic_regions: Optional[Dict[str, pr.PyRanges]] = None,
     gene_model_kwargs: Optional[Dict[str, Any]] = None,
@@ -48,6 +48,9 @@ def region_plot(
         must contain at least these GTF format columns (uppercase): Feature
         Features are filtered for: ["transcript", "exon", "UTR"], other features (e.g. gene are ignored)
         consider using `` for filtering GTF gene annos for primary transcripts where possible
+    bar_plot_kwargs
+        passed to bar_plot
+        do not use these kwargs, they are managed by this function: ['beta_values', 'axes', 'subject_order', 'offset']
 
     roi_start, roi_end
         beta_value_gr or gencode_gr may contain intervals outside of the region of interest
@@ -79,6 +82,15 @@ def region_plot(
     debug
         if True, plot x axis for all plots to make sure they align
     """
+
+
+    if not bar_plot_kwargs:
+        bar_plot_kwargs = {}
+    mangaged_bar_plot_args = ['beta_values', 'axes', 'subject_order', 'offset']
+    assert not any([x in bar_plot_kwargs.keys() for x in mangaged_bar_plot_args])
+
+    if not gene_model_kwargs:
+        gene_model_kwargs = {}
 
     plot_df = pd.melt(
         beta_values_gr[chrom, start:end].df,  # type: ignore
@@ -112,29 +124,8 @@ def region_plot(
         beta_values=plot_df,
         axes=axes_d["methlevels"],
         subject_order=subject_order,
-        region_boundaries=None,
-        palette=palette,  # type: ignore
-        # ylabel='test',
-        ylabel=None,
-        show_splines=True,
-        axes_title_position="right",
-        axes_title_size=6,
-        axes_title_rotation=0,
-        grid_lw=0.5,
-        grid_color="lightgray",
-        xlabel="Position (bp)",
         offset=offset,
-        # xlim=(9857000, 9858000),
-        # xticks=(9857000, 9857500, 9858000),
-        n_xticklabels=5,
-        bar_percent=0.01,
-        merge_bars=False,
-        ylim=(0, 1),
-        yticks_major=(0, 1),
-        yticks_minor=(0.5,),
-        n_yticklabels=3,
-        # region_properties: Optional[pd.DataFrame] = None,
-        # region_boundaries_kws: Optional[Dict] = None,
+        **bar_plot_kwargs,
     )
 
     # Remove x axis labels if there is any annotation plot below (which will provide the coordinates, unless we are debugging this plot

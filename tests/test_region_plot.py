@@ -20,12 +20,12 @@ from methlevels.utils import (
     read_csv_with_padding,
 )
 from methlevels.utils import NamedColumnsSlice as ncls
-from methlevels.plots2 import plot_gene_model, get_text_width_data_coordinates
-from methlevels.region_plot import (
+from methlevels.plot_genomic import plot_gene_model, get_text_width_data_coordinates
+from methlevels.plot_region import (
     restrict_to_primary_transcript_if_multiple_transcripts_are_present,
     region_plot,
 )
-from methlevels.plots import bar_plot
+from methlevels.plot_methlevels import bar_plot
 
 import mouse_hema_meth.styling as mhstyle
 
@@ -59,7 +59,7 @@ def get_cpg_betas_gr():
     roi_end = 19_018_985 + 5000
 
     hierarchy_bed_calls_ds1 = ml.BedCalls(
-        metadata_table=ds1_metadata_table,
+        metadata_table=ds1_metadata_table,  # type: ignore
         tmpdir=mhpaths.project_temp_dir,
         pop_order=mhvars.ds1.all_pops,
         beta_value_col=6,
@@ -116,6 +116,7 @@ def get_cpg_betas_gr():
 
 def test_region_plot():
 
+    # %%
     cpg_betas = pd.read_csv(
         "/home/kraemers/projects/methlevels/tests/test-data/cpg-betas.tsv", sep="\t"
     )
@@ -156,7 +157,7 @@ Chromosome Start End name
     """
             ),
             sep=" ",
-        ).assign(
+        ).assign(  # type: ignore
             Start=lambda df: df.Start + 19_018_985, End=lambda df: df.End + 19_018_985
         )
     )
@@ -171,13 +172,15 @@ Chromosome Start End name
     """
             ),
             sep=" ",
-        ).assign(
+        ).assign(  # type: ignore
             Start=lambda df: df.Start + 19_018_985 + 200,
             End=lambda df: df.End + 19_018_985 + 200,
         )
     )
 
-    fig, axes_d = region_plot(
+    # %%
+
+    fig, axes_d = region_plot(  # type: ignore
         beta_values_gr=beta_values_gr,
         gene_anno_gr=gencode_gr,
         genomic_regions={"track1": granges_gr_1, "track2": granges_gr_2},
@@ -194,7 +197,6 @@ Chromosome Start End name
         end=19_018_985 + 5000,
         offset=True,
         subject_order=mhvars.ds1.plot_names_ordered,
-        palette=mhstyle.hema_colors_ds1.plot_name_to_compartment_color_d,
         anno_axes_size=cm(0.5),
         gene_axes_size=cm(1.5),
         anno_axes_padding=0.02,
@@ -208,6 +210,26 @@ Chromosome Start End name
             gene_label_size=6,
             y_bottom_margin=-0.2,
         ),
+        bar_plot_kwargs=dict(
+            palette=mhstyle.hema_colors_ds1.plot_name_to_compartment_color_d,
+            axes_title_position="right",
+            axes_title_rotation=0,
+            region_boundaries=None,
+            ylabel=None,
+            show_splines=True,
+            axes_title_size=6,
+            grid_lw=0.5,
+            grid_color="lightgray",
+            xlabel="Position (bp)",
+            n_xticklabels=5,
+            ylim=(0, 1),
+            yticks_major=(0, 1),
+            yticks_minor=(0.5,),
+            n_yticklabels=3,
+            merge_overlapping_bars=True,
+            minimum_bar_width_pt=1,
+            barplot_lw=0.3,
+        ),
         debug=False,
     )
     ut.save_and_display(
@@ -215,3 +237,4 @@ Chromosome Start End name
         png_path=mhpaths.project_temp_dir + "/asfsdf.svg",
         # additional_formats=tuple(),
     )
+    # %%

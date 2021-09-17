@@ -37,6 +37,7 @@ Next steps
 - prior to spline computation, the _smoothed_monotonic_spline function fills NA values with linear interpolation where possible, and extrapolates by using the nearest defined value. Perhaps this should be improved?
 
 """
+print("reloaded plot_methlevels")
 
 from copy import copy
 from typing import Optional, List, Union, Dict, Tuple, Literal
@@ -355,8 +356,9 @@ def bar_plot(
     subject_order: Optional[List[str]] = None,
     palette: Union[str, Dict[str, str]] = "Set1",
     # bar plot
-    bar_percent: float = 0.01,
-    merge_bars=False,
+    minimum_bar_width_pt: float = 1,
+    barplot_lw: float = 0.3,
+    merge_overlapping_bars: bool = False,
     # line plot
     show_splines: bool = False,
     # xticks, xlabel
@@ -381,11 +383,15 @@ def bar_plot(
     axes_title_rotation=270,
     # mark ROI
     region_properties: Optional[pd.DataFrame] = None,
-    region_boundaries: Optional[str] = "box",
+        region_boundaries: Optional[str] = None,
     region_boundaries_kws: Optional[Dict] = None,
     #
 ) -> None:
     """Draw bar plots (one row per subject) on List[Axes], optionally with profile lines
+
+    This function is meant to plot methlevels for individual cytosines or (merged) cytosine-motifs (CG, CHG). In a single call, all cytosine (motifs) are expected to have the same size, ie single cytosines and CG motifs cannot be mixed. This could be changed in the future.
+
+    The width of the bars indicating meth levels for individual cytosines can be increased beyond the motif bp width by setting minimum_bar_width_pt. Note: if minimum_bar_width_pt is used (the default), bars for multiple motifs can overlap. In this case, the region containing the 'overlapping' motif positions is binned in bins with width of minimum_bar_width_pt and the average methylation for each bin is shown if `merge_overlapping_bars = True`.
 
     - the grid is drawn for both yticks_major and yticks_minor, but yticks_minor has no ticklabels
 
@@ -408,10 +414,18 @@ def bar_plot(
     xticks: if not None, overrides n_xticklabels
     yticks_major: if not None, overrides n_yticklabels
     yticks_minor: if yticks_major is not None, overrides n_yticklabels
-    bar_percent: width of bars in percent of Axes width
+    minimum_bar_width_pt
+        minimum bar width for a single motif in pt
+    merge_overlapping_bar
+        if true, replace clusters of overlapping bars with binned average methylation levels with bin size minimum_bar_width_pt (useful because if minimum_bar_width_pt is used, bars may overlap)
     """
 
+    assert beta_values.eval("End - Start").nunique() == 1
+
     beta_values = beta_values.copy()
+
+    motif_size = beta_values.iloc[[0]].eval("End - Start").iloc[0]
+
     beta_values.Chromosome = beta_values.Chromosome.astype(str)
 
     # prepare/assert args and derived params
@@ -427,9 +441,10 @@ def bar_plot(
     else:
         assert isinstance(palette, dict)
 
+    # %%
     # x limits and ticks
     for ax in axes:
-        ax.margins(x=bar_percent)
+        ax.margins(x=minimum_bar_width_pt)
     if xticks is None:
         for ax in axes:
             ax.xaxis.set_major_locator(
@@ -464,9 +479,10 @@ def bar_plot(
     if ylim is not None:
         for ax in axes:
             ax.set_ylim(ylim)
-    if xlim is not None:
-        for ax in axes:
-            ax.set_xlim(xlim)
+    if xlim is None:
+        xlim = (beta_values["Start"].min(), beta_values["End"].max())
+    for ax in axes:
+        ax.set_xlim(xlim)
 
     plt.setp(axes, ylabel=ylabel)
 
@@ -476,96 +492,136 @@ def bar_plot(
     for ax in axes:
         sns.despine(ax=ax)
         ax.grid(True, which="both", axis="y", lw=grid_lw, c=grid_color, zorder=0)
+        ax.set_axisbelow(True)
     for ax in axes[:-1]:
         ax.tick_params(axis="x", bottom=False, labelbottom=False)
+    # %%
 
     # Create bar plots (one subject per Axes), with optional spline lines
-    # To ensure visibility of the bars in small plots, they should cover at least one percent of the x axis
 
     # get integer bar width, make it even so that we can extend bar evenly on both sites of CpG dimer
-    if bar_percent is not None:
-        bar_width = np.round(
-            (beta_values["End"].max() - beta_values["Start"].min()) * bar_percent, 0
+    if minimum_bar_width_pt is not None:
+        fig = axes[0].figure
+        bar_width_coords = (
+            axes[0]
+            .transData.inverted()
+            .transform(
+                fig.dpi_scale_trans.transform(
+                    [(0, 0), (minimum_bar_width_pt * 1 / 72, 0)]
+                )
+            )
         )
-        if bar_width % 2 != 0:
-            bar_width += 1
-        bar_width = int(bar_width)
+        min_bar_width_bp = max(
+            bar_width_coords[1, 0] - bar_width_coords[0, 0], motif_size
+        )
     else:
-        bar_width = 0
+        min_bar_width_bp = motif_size
 
-    if (bar_percent is not None) and merge_bars:
-        # aggregate overlapping bars, prior to plotting
-        # (esp. also prior to spline computation and plotting)
-        # find all occuring intervals (some subjects may not provide data for all intervals)
-        # extend and cluster them
+    if min_bar_width_bp and merge_overlapping_bars:
+
+        beta_values_w_bars = beta_values.assign(
+            Start_orig=lambda df: df.Start,
+            End_orig=lambda df: df.End,
+            center=lambda df: df.Start + (df.End - df.Start) / 2,
+            Start=lambda df: df.Start - (min_bar_width_bp / 2),
+            End=lambda df: df.End + (min_bar_width_bp / 2),
+        )
 
         clustered_unique_intervals = (
             pr.PyRanges(
-                beta_values[["Chromosome", "Start", "End"]]
-                .drop_duplicates()
-                .assign(
-                    Start_orig=lambda df: df.Start,
-                    End_orig=lambda df: df.End,
-                    Start=lambda df: df.Start - (bar_width / 2),
-                    End=lambda df: df.End + (bar_width / 2),
-                )
+                beta_values_w_bars[
+                    ["Chromosome", "Start", "End", "Start_orig", "End_orig", "center"]
+                ].drop_duplicates(subset=["Start", "End"])
             )
             .cluster()
-            .df.assign(Chromosome=lambda df: df.Chromosome.astype(str))
-            .drop(["Start", "End"], axis=1)
-            .rename(columns={"Start_orig": "Start", "End_orig": "End"})
+            .df
         )
 
-        beta_values = beta_values.merge(
-            clustered_unique_intervals, on=["Chromosome", "Start", "End"], how="left"
-        )
-        assert beta_values["Cluster"].notnull().all()
+        def bin_motif_group(group_df, min_bar_width_bp):
+            if group_df.shape[0] > 1:
+                # group_df = clustered_unique_intervals
+                pd.testing.assert_frame_equal(group_df.sort_values("Start"), group_df)
+                cluster_width_bp = (
+                    group_df.iloc[-1]["End_orig"] - group_df.iloc[0]["Start_orig"]
+                )
+                n_bins = int(np.ceil(cluster_width_bp / min_bar_width_bp))
+                total_bins_width = min_bar_width_bp * n_bins
+                bins_start = group_df.iloc[0]["Start_orig"] - max(
+                    (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
+                )
+                bins_end = group_df.iloc[-1]["End_orig"] + max(
+                    (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
+                )
+                bins = np.linspace(bins_start, bins_end, n_bins + 1)
+                bin_centers = (bins + min_bar_width_bp / 2)[:-1]
+                group_df["center"] = pd.cut(
+                    group_df["center"], bins=bins, labels=bin_centers
+                )
+            return group_df
 
-        beta_values = (
-            beta_values.groupby(["subject", "Cluster"])
-            .agg(
-                {
-                    "Chromosome": lambda ser: ser.iloc[0],
-                    "Start": lambda ser: ser.min(),
-                    "End": lambda ser: ser.max(),
-                    "beta_value": "mean",
-                }
-            )
+        clustered_unique_intervals_w_center = (
+            clustered_unique_intervals.groupby("Cluster")
+            .apply(bin_motif_group, min_bar_width_bp=min_bar_width_bp)
+            .assign(Start=lambda df: df["Start_orig"], End=lambda df: df["End_orig"])
+            .drop(["Start_orig", "End_orig"], axis=1)
+        )
+
+        beta_values_w = beta_values.merge(
+            clustered_unique_intervals_w_center,
+            on=["Chromosome", "Start", "End"],
+            how="left",
+        )
+        assert beta_values_w["Cluster"].notnull().all()
+        # beta_values_w['Chromosome'].isnull().any()
+
+        beta_values_w2 = (
+            beta_values_w.groupby(
+                ["subject", "Chromosome", "Cluster", "center"],
+                sort=True,
+                observed=True,
+            )["beta_value"]
+            .mean()
             .reset_index()
             .drop(["Cluster"], axis=1)
+        )
+    else:
+        beta_values_w2 = beta_values
+        beta_values["center"] = beta_values.Start + (
+            (beta_values.End - beta_values.Start) / 2
         )
 
     # Must be done AFTER optional beta value aggregation
     if show_splines:
 
         spline_dfs = []
-        for subject, subject_df in beta_values.groupby("subject"):
-            # Start + 1 is necessary to align line with bars,
-            # even though bars are also plotted with edge at Start.
-            # Just do it for now, haven't investigated further.
-            pos_arr = (subject_df["Start"] - (bar_width / 2) + 1).values
-            pos_arr[-1] = subject_df["End"].iloc[-1] - 1 + (bar_width / 2)
+        for subject, subject_df in beta_values_w2.groupby("subject"):
             spline_dfs.append(
                 _smoothed_monotonic_spline2(
                     beta_value_ser=subject_df["beta_value"],
-                    pos_arr=pos_arr,
+                    pos_arr=subject_df["center"].to_numpy(),
                     subject=subject,
                 ).set_index("subject")
             )
         beta_value_lines = pd.concat(spline_dfs)
 
-    for i, (subject, group_df) in enumerate(beta_values.groupby("subject", sort=True)):
+    for i, (subject, group_df) in enumerate(
+        beta_values_w2.groupby("subject", sort=True)
+    ):
         axes[i].bar(
-            x=group_df["Start"] - (bar_width / 2),
+            x=group_df["center"] - (min_bar_width_bp / 2),
             height=group_df["beta_value"],
-            width=group_df["End"] - group_df["Start"] + bar_width,
-            align="edge",
+            width=min_bar_width_bp,
+            align="center",
             color=palette[subject],
-            zorder=10,
+            edgecolor="white",
+            linewidth=barplot_lw,
+            zorder=1,
         )
         if show_splines:
             view = beta_value_lines.loc[subject]
-            axes[i].plot(view["Start"], view["beta_value"], color=palette[subject])
+            axes[i].plot(
+                view["Start"], view["beta_value"], color=palette[subject], zorder=2
+            )
 
     # Add subject name as right margin title
     for subject, ax in zip(subject_order, axes):
@@ -579,7 +635,6 @@ def bar_plot(
                 rotation=axes_title_rotation,
                 ha="left",
                 va="center",
-                backgroundcolor="white",
                 size=axes_title_size,
             )
         else:
@@ -607,7 +662,6 @@ def bar_plot(
                     ):
                         ax.axvline(pos, **merged_region_boundaries_kws)
 
-
     last_ax = axes[-1]
     # currently bug - does not remove trailing zeros from offset
     # last_ax.xaxis.set_major_formatter(mticker.ScalarFormatterQuickfixed(useOffset=True))
@@ -615,9 +669,11 @@ def bar_plot(
     if offset and isinstance(offset, bool):
         offset = coutils.find_offset(ax=last_ax)
     if offset:
-        last_ax.ticklabel_format(axis='x', useOffset=offset)
+        last_ax.ticklabel_format(axis="x", useOffset=offset)
     if order_of_magnitude:
-        last_ax.ticklabel_format(axis='x', scilimits=(order_of_magnitude, order_of_magnitude))
+        last_ax.ticklabel_format(
+            axis="x", scilimits=(order_of_magnitude, order_of_magnitude)
+        )
 
     offset_text_size = mpl.rcParams["xtick.labelsize"] - 1
     axes[-1].xaxis.get_offset_text().set_size(offset_text_size)
@@ -628,8 +684,6 @@ def bar_plot(
         axes[-1].set_xlabel(
             xlabel, labelpad=offset_text_size + mpl.rcParams["axes.labelsize"]
         )
-
-
 
 
 def create_region_plots(
@@ -1096,5 +1150,3 @@ def _prepare_beta_values(
     # Sorting by Start is sufficient, because we are looking at a set of CpGs on the same Chromosome
     beta_values = beta_values.sort_values(["subject", "Start"])
     return beta_values
-
-

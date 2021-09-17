@@ -62,6 +62,7 @@ def test_plot_gene_model():
 
 def test_barplot():
 
+    # %%
     dms_all = get_meth_stats_for_granges_lib.dmr_meth_stats_all_pops_no_qc_poplevel
 
     plot_df = (
@@ -79,50 +80,67 @@ def test_barplot():
     )
 
     # %%
-    facet_grid_axes = coutils.FacetGridAxes(
-        n_plots=plot_df.subject.nunique(),
-        n_cols=1,
-        figsize=(ut.cm(5), ut.cm(15)),
-        constrained_layout_pads=dict(h_pad=0, w_pad=0.02, hspace=0, wspace=0),
-        figure_kwargs=dict(constrained_layout=True, dpi=180),
+    kwargs_to_test = dict(
+        a=dict(
+            minimum_bar_width_pt=1.5,
+            merge_overlapping_bars=False,
+            barplot_lw=0.2,
+            show_splines=True,
+        ),
+        b=dict(
+            minimum_bar_width_pt=0,
+            merge_overlapping_bars=False,
+            barplot_lw=0.2,
+            show_splines=True,
+        ),
+        c=dict(
+            minimum_bar_width_pt=1.5,
+            merge_overlapping_bars=True,
+            barplot_lw=0.2,
+            show_splines=False,
+        ),
     )
+    for name, kwargs in kwargs_to_test.items():
 
-    bar_plot(
-        beta_values=plot_df,
-        axes=facet_grid_axes.axes_flat,
-        subject_order=mhvars.ds1.plot_names_ordered,
-        # subject_order=["HSC", "Monocytes", "B cells"],
-        region_boundaries=None,
-        palette=mhstyle.hema_colors_ds1.plot_name_to_compartment_color_d,
-        # ylabel='test',
-        ylabel=None,
-        show_splines=True,
-        axes_title_position="right",
-        axes_title_size=6,
-        axes_title_rotation=0,
-        grid_lw=0.5,
-        grid_color="lightgray",
-        xlabel="Position (bp)",
-        # xlim=(9857000, 9858000),
-        # xticks=(9857000, 9857500, 9858000),
-        n_xticklabels=5,
-        bar_percent=0.01,
-        merge_bars=False,
-        ylim=(0, 1),
-        yticks_major=(0, 1),
-        yticks_minor=(0.5,),
-        n_yticklabels=3,
-        # region_properties: Optional[pd.DataFrame] = None,
-        # region_boundaries_kws: Optional[Dict] = None,
-    )
+        facet_grid_axes = coutils.FacetGridAxes(
+            n_plots=plot_df.subject.nunique(),
+            n_cols=1,
+            figsize=(ut.cm(5), ut.cm(15)),
+            constrained_layout_pads=dict(h_pad=0, w_pad=0.02, hspace=0, wspace=0),
+            figure_kwargs=dict(constrained_layout=True, dpi=180),
+        )
 
-    facet_grid_axes.add_y_marginlabel("Methylation (%)")
+        bar_plot(
+            beta_values=plot_df,
+            axes=facet_grid_axes.axes_flat,
+            subject_order=mhvars.ds1.plot_names_ordered,
+            palette=mhstyle.hema_colors_ds1.plot_name_to_compartment_color_d,
+            ylabel=None,
+            axes_title_position="right",
+            axes_title_size=6,
+            axes_title_rotation=0,
+            grid_lw=0.5,
+            grid_color="lightgray",
+            xlabel="Position (bp)",
+            # xlim=(9857000, 9858000),
+            # xticks=(9857000, 9857500, 9858000),
+            n_xticklabels=5,
+            ylim=(0, 1),
+            yticks_major=(0, 1),
+            yticks_minor=(0.5,),
+            # n_yticklabels=3,
+            # region_properties: Optional[pd.DataFrame] = None,
+            # region_boundaries_kws: Optional[Dict] = None,
+            **kwargs,
+        )
 
-    ut.save_and_display(
-        facet_grid_axes.fig,
-        png_path=mhpaths.project_temp_dir + "/asfsdf.png",
-        additional_formats=tuple(),
-    )
+        facet_grid_axes.add_y_marginlabel("Methylation (%)")
+
+        ut.save_and_display(
+            facet_grid_axes.fig,
+            png_path=mhpaths.project_temp_dir + f"/asfsdf_{name}.svg",
+            additional_formats=tuple(),
+        )
     # %%
 
 
@@ -145,7 +163,9 @@ Chromosome Start End name
     """
             ),
             sep=" ",
-        ).assign(Start=lambda df: df.Start + 110_000_000, End = lambda df: df.End + 110_000_000)
+        ).assign(
+            Start=lambda df: df.Start + 110_000_000, End=lambda df: df.End + 110_000_000
+        )
     )
 
     # single color, no labels, no zoom, no explicit offset/order of magnitude
@@ -179,7 +199,7 @@ Chromosome Start End name
         label_size=6,
         no_coords=False,
         ymargin=0.1,
-        offset=109_900_000
+        offset=109_900_000,
     )
 
     fig
