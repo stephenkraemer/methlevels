@@ -60,9 +60,7 @@ def test_plot_gene_model():
     ut.save_and_display(fig, png_path=mhpaths.project_temp_dir + "/asfsdf.png")
 
 
-def test_barplot():
-
-    # %%
+def generate_barplot_plot_df():
     dms_all = get_meth_stats_for_granges_lib.dmr_meth_stats_all_pops_no_qc_poplevel
 
     plot_df = (
@@ -78,6 +76,11 @@ def test_barplot():
             ["Chromosome", "Start", "End", "subject", "beta_value"]
         ]
     )
+    plot_df.to_pickle('/home/kraemers/projects/methlevels/tests/test-data/barplot-beta-values.p')
+
+def test_barplot():
+
+    plot_df = pd.read_pickle('/home/kraemers/projects/methlevels/tests/test-data/barplot-beta-values.p')
 
     # %%
     kwargs_to_test = dict(
@@ -87,6 +90,13 @@ def test_barplot():
         #     barplot_lw=0.2,
         #     show_splines=True,
         # ),
+        spline_lw=dict(
+            minimum_bar_width_pt=3,
+            merge_overlapping_bars=False,
+            barplot_lw=0.2,
+            spline_lw = 2,
+            show_splines=True,
+        ),
         # b=dict(
         #     minimum_bar_width_pt=0,
         #     merge_overlapping_bars=False,
@@ -135,18 +145,18 @@ def test_barplot():
         #     region_boundaries="box",
         #     region_boundaries_kws = {"color": "gray", "alpha": 0.5},
         # ),
-        with_single_region_boundary_box_and_dodged_bars=dict(
-            minimum_bar_width_pt=3,
-            merge_overlapping_bars='dodge',
-            barplot_lw=0,
-            show_splines=True,
-            region_properties=pd.DataFrame(
-                dict(Chromosome=["1"], Start=np.unique(plot_df.Start)[1], End=np.unique(plot_df.End)[-2],
-            )),
-            region_boundaries="box",
-            region_boundaries_kws = {"color": "gray", "alpha": 0.5},
-            min_gap_width_pt = 0.2,
-        ),
+        # with_single_region_boundary_box_and_dodged_bars=dict(
+        #     minimum_bar_width_pt=3,
+        #     merge_overlapping_bars='dodge',
+        #     barplot_lw=0,
+        #     show_splines=True,
+        #     region_properties=pd.DataFrame(
+        #         dict(Chromosome=["1"], Start=np.unique(plot_df.Start)[1], End=np.unique(plot_df.End)[-2],
+        #     )),
+        #     region_boundaries="box",
+        #     region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+        #     min_gap_width_pt = 0.2,
+        # ),
         with_multiple_region_boundary_box_and_dodged_bars=dict(
             minimum_bar_width_pt=3,
             merge_overlapping_bars='dodge',

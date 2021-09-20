@@ -48,12 +48,14 @@ def bar_plot(
     minimum_bar_width_pt: float = 1,
     min_gap_width_pt: float = 0.2,
     barplot_lw: float = 0.3,
+    spline_lw: float = 1,
     merge_overlapping_bars: Optional[Literal["bin", "dodge"]] = None,
     # line plot
     show_splines: bool = False,
     # xticks, xlabel
     n_xticklabels=4,
     xlim: Optional[Tuple[float, float]] = None,
+    xmargin:float = 0.01,
     xticks: Optional[Union[List[float], np.ndarray, Tuple[float, ...]]] = None,
     order_of_magnitude: Optional[int] = None,
     offset: Optional[Union[float, bool]] = None,
@@ -176,6 +178,8 @@ def bar_plot(
             ax.set_ylim(ylim)
     if xlim is None:
         xlim = (beta_values["Start"].min(), beta_values["End"].max())
+    xmargin_bp = (xlim[1] - xlim[0]) * xmargin
+    xlim = (xlim[0] - xmargin_bp, xlim[1] + xmargin_bp)
     for ax in axes:
         ax.set_xlim(xlim)
 
@@ -305,7 +309,7 @@ def bar_plot(
         if show_splines:
             view = beta_value_lines.loc[subject]
             axes[i].plot(
-                view["Start"], view["beta_value"], color=palette[subject], zorder=2
+                view["Start"], view["beta_value"], color=palette[subject], zorder=2, linewidth = spline_lw,
             )
 
     # Add subject name as right margin title
