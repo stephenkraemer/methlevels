@@ -82,7 +82,7 @@ def test_barplot():
     # %%
     kwargs_to_test = dict(
         a=dict(
-            minimum_bar_width_pt=1.5,
+            minimum_bar_width_pt=3,
             merge_overlapping_bars=False,
             barplot_lw=0.2,
             show_splines=True,
@@ -94,18 +94,55 @@ def test_barplot():
             show_splines=True,
         ),
         c=dict(
-            minimum_bar_width_pt=1.5,
+            minimum_bar_width_pt=3,
             merge_overlapping_bars=True,
             barplot_lw=0.2,
             show_splines=False,
         ),
+        with_single_region_boundary_box=dict(
+            minimum_bar_width_pt=3,
+            merge_overlapping_bars=True,
+            barplot_lw=0,
+            show_splines=True,
+            region_properties=pd.DataFrame(
+                dict(Chromosome=["1"], Start=np.unique(plot_df.Start)[1], End=np.unique(plot_df.End)[-2],
+            )),
+            region_boundaries="box",
+            region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+        ),
+        with_single_region_boundary_box_and_binned_bars=dict(
+            minimum_bar_width_pt=3,
+            merge_overlapping_bars=True,
+            barplot_lw=0,
+            show_splines=True,
+            region_properties=pd.DataFrame(
+                dict(Chromosome=["1"], Start=np.unique(plot_df.Start)[1], End=np.unique(plot_df.End)[-3],
+            )),
+            region_boundaries="box",
+            region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+        ),
+        with_multiple_region_boundary_box_and_binned_bars=dict(
+            minimum_bar_width_pt=3,
+            merge_overlapping_bars=True,
+            barplot_lw=0,
+            show_splines=True,
+            region_properties=pd.DataFrame(
+                dict(
+                    Chromosome=["1", "1"],
+                    Start=np.unique(plot_df.Start)[[0, 3]],
+                    End=np.unique(plot_df.End)[[1, -1]],
+            )),
+            region_boundaries="box",
+            region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+        ),
     )
+
     for name, kwargs in kwargs_to_test.items():
 
         facet_grid_axes = coutils.FacetGridAxes(
             n_plots=plot_df.subject.nunique(),
             n_cols=1,
-            figsize=(ut.cm(5), ut.cm(15)),
+            figsize=(ut.cm(10), ut.cm(30)),
             constrained_layout_pads=dict(h_pad=0, w_pad=0.02, hspace=0, wspace=0),
             figure_kwargs=dict(constrained_layout=True, dpi=180),
         )
@@ -122,15 +159,13 @@ def test_barplot():
             grid_lw=0.5,
             grid_color="lightgray",
             xlabel="Position (bp)",
-            # xlim=(9857000, 9858000),
-            # xticks=(9857000, 9857500, 9858000),
             n_xticklabels=5,
+            # n_yticklabels=3,
             ylim=(0, 1),
             yticks_major=(0, 1),
             yticks_minor=(0.5,),
-            # n_yticklabels=3,
-            # region_properties: Optional[pd.DataFrame] = None,
-            # region_boundaries_kws: Optional[Dict] = None,
+            # xlim=(9857000, 9858000),
+            # xticks=(9857000, 9857500, 9858000),
             **kwargs,
         )
 
@@ -163,7 +198,7 @@ Chromosome Start End name
     """
             ),
             sep=" ",
-        ).assign(
+        ).assign(  # type: ignore
             Start=lambda df: df.Start + 110_000_000, End=lambda df: df.End + 110_000_000
         )
     )
