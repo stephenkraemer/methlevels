@@ -46,8 +46,9 @@ def bar_plot(
     palette: Union[str, Dict[str, str]] = "Set1",
     # bar plot
     minimum_bar_width_pt: float = 1,
+    min_gap_width_pt: float = 0.2,
     barplot_lw: float = 0.3,
-    merge_overlapping_bars: bool = False,
+    merge_overlapping_bars: Optional[Literal["bin", "dodge"]] = None,
     # line plot
     show_splines: bool = False,
     # xticks, xlabel
@@ -80,7 +81,7 @@ def bar_plot(
 
     This function is meant to plot methlevels for individual cytosines or (merged) cytosine-motifs (CG, CHG). In a single call, all cytosine (motifs) are expected to have the same size, ie single cytosines and CG motifs cannot be mixed. This could be changed in the future.
 
-    The width of the bars indicating meth levels for individual cytosines can be increased beyond the motif bp width by setting minimum_bar_width_pt. Note: if minimum_bar_width_pt is used (the default), bars for multiple motifs can overlap. In this case, the region containing the 'overlapping' motif positions is binned in bins with width of minimum_bar_width_pt and the average methylation for each bin is shown if `merge_overlapping_bars = True`.
+    The width of the bars indicating meth levels for individual cytosines can be increased beyond the motif bp width by setting minimum_bar_width_pt. Note: if minimum_bar_width_pt is used (the default), bars for multiple motifs can overlap. In this case, the region containing the 'overlapping' motif positions is binned in bins with width of minimum_bar_width_pt and the average methylation for each bin is shown if `merge_overlapping_bars = bin` or bars are dodged if = 'dodge'.
 
     - the grid is drawn for both yticks_major and yticks_minor, but yticks_minor has no ticklabels
 
@@ -105,6 +106,8 @@ def bar_plot(
     yticks_minor: if yticks_major is not None, overrides n_yticklabels
     minimum_bar_width_pt
         minimum bar width for a single motif in pt
+    min_gap_width_pt
+        minimum space between two bars before merging them, respects min_bar_width_pt. Currently ONLY used for dodge mode
     merge_overlapping_bar
         if true, replace clusters of overlapping bars with binned average methylation levels with bin size minimum_bar_width_pt (useful because if minimum_bar_width_pt is used, bars may overlap)
     """
@@ -209,6 +212,20 @@ def bar_plot(
     else:
         min_bar_width_bp = motif_size
 
+    # min_gap_width_pt currently only used for dodge mode
+    if merge_overlapping_bars == 'dodge':
+        fig = axes[0].figure
+        bar_width_coords = (
+            axes[0]
+            .transData.inverted()
+            .transform(
+                fig.dpi_scale_trans.transform(
+                    [(0, 0), (min_gap_width_pt * 1 / 72, 0)]
+                )
+            )
+        )
+        min_gap_width_bp = bar_width_coords[1, 0] - bar_width_coords[0, 0]
+
     if min_bar_width_bp and merge_overlapping_bars:
 
         beta_values_w_bars = beta_values.assign(
@@ -219,44 +236,16 @@ def bar_plot(
             End=lambda df: df.End + (min_bar_width_bp / 2),
         )
 
-        clustered_unique_intervals = (
-            pr.PyRanges(
-                beta_values_w_bars[
-                    ["Chromosome", "Start", "End", "Start_orig", "End_orig", "center"]
-                ].drop_duplicates(subset=["Start", "End"])
+        if merge_overlapping_bars == "bin":
+            clustered_unique_intervals_w_center = _bin_overlapping_bars(
+                beta_values_w_bars, min_bar_width_bp
             )
-            .cluster()
-            .df
-        )
-
-        def bin_motif_group(group_df, min_bar_width_bp):
-            if group_df.shape[0] > 1:
-                # group_df = clustered_unique_intervals
-                pd.testing.assert_frame_equal(group_df.sort_values("Start"), group_df)
-                cluster_width_bp = (
-                    group_df.iloc[-1]["End_orig"] - group_df.iloc[0]["Start_orig"]
-                )
-                n_bins = int(np.ceil(cluster_width_bp / min_bar_width_bp))
-                total_bins_width = min_bar_width_bp * n_bins
-                bins_start = group_df.iloc[0]["Start_orig"] - max(
-                    (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
-                )
-                bins_end = group_df.iloc[-1]["End_orig"] + max(
-                    (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
-                )
-                bins = np.linspace(bins_start, bins_end, n_bins + 1)
-                bin_centers = (bins + min_bar_width_bp / 2)[:-1]
-                group_df["center"] = pd.cut(
-                    group_df["center"], bins=bins, labels=bin_centers
-                )
-            return group_df
-
-        clustered_unique_intervals_w_center = (
-            clustered_unique_intervals.groupby("Cluster")
-            .apply(bin_motif_group, min_bar_width_bp=min_bar_width_bp)
-            .assign(Start=lambda df: df["Start_orig"], End=lambda df: df["End_orig"])
-            .drop(["Start_orig", "End_orig"], axis=1)
-        )
+        elif merge_overlapping_bars == "dodge":
+            clustered_unique_intervals_w_center = _dodge_overlapping_bars(
+                beta_values_w_bars, min_bar_width_bp, min_gap_width_bp
+            )
+        else:
+            raise ValueError()
 
         beta_values_w = beta_values.merge(
             clustered_unique_intervals_w_center,
@@ -343,7 +332,6 @@ def bar_plot(
         # adjust region_properties to align with the potential new motif positions
         # beta_values_w2 contains original start and End coords and the (potentially shifted) center, this center is what we want to base our plot boundaries on
         # we use beta_values_w2 because it is always there also without any motif shifting or binning performed
-
 
         region_properties = pd.merge(
             region_properties.merge(
@@ -675,3 +663,114 @@ def _prepare_beta_values(
     # Sorting by Start is sufficient, because we are looking at a set of CpGs on the same Chromosome
     beta_values = beta_values.sort_values(["subject", "Start"])
     return beta_values
+
+
+def _bin_overlapping_bars(beta_values_w_bars, min_bar_width_bp):
+    clustered_unique_intervals = (
+        pr.PyRanges(
+            beta_values_w_bars[
+                ["Chromosome", "Start", "End", "Start_orig", "End_orig", "center"]
+            ].drop_duplicates(subset=["Start", "End"])
+        )
+        .cluster()
+        .df
+    )
+
+    def bin_motif_group(group_df, min_bar_width_bp):
+        if group_df.shape[0] > 1:
+            # group_df = clustered_unique_intervals
+            pd.testing.assert_frame_equal(group_df.sort_values("Start"), group_df)
+            cluster_width_bp = (
+                group_df.iloc[-1]["End_orig"] - group_df.iloc[0]["Start_orig"]
+            )
+            n_bins = int(np.ceil(cluster_width_bp / min_bar_width_bp))
+            total_bins_width = min_bar_width_bp * n_bins
+            bins_start = group_df.iloc[0]["Start_orig"] - max(
+                (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
+            )
+            bins_end = group_df.iloc[-1]["End_orig"] + max(
+                (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
+            )
+            bins = np.linspace(bins_start, bins_end, n_bins + 1)
+            bin_centers = (bins + min_bar_width_bp / 2)[:-1]
+            group_df["center"] = pd.cut(
+                group_df["center"], bins=bins, labels=bin_centers
+            )
+        return group_df
+
+    clustered_unique_intervals_w_center = (
+        clustered_unique_intervals.groupby("Cluster")
+        .apply(bin_motif_group, min_bar_width_bp=min_bar_width_bp)
+        .assign(Start=lambda df: df["Start_orig"], End=lambda df: df["End_orig"])
+        .drop(["Start_orig", "End_orig"], axis=1)
+    )
+    return clustered_unique_intervals_w_center
+
+
+def _dodge_overlapping_bars(beta_values_w_bars, min_bar_width_bp, min_bar_gap_bp):
+
+    beta_values_w_bars_ = beta_values_w_bars.copy()
+
+    clustered_unique_intervals = (
+        pr.PyRanges(
+            beta_values_w_bars_[
+                ["Chromosome", "Start", "End", "Start_orig", "End_orig", "center"]
+            ].drop_duplicates(subset=["Start", "End"])
+        )
+        .cluster()
+        .df
+    )
+
+    while clustered_unique_intervals["Cluster"].value_counts().gt(1).any():
+        beta_values_w_bars_ = clustered_unique_intervals.groupby("Cluster").apply(
+            _dodge_bar_group,
+            min_bar_width_bp=min_bar_width_bp,
+            min_bar_gap_bp=min_bar_gap_bp,
+        )
+        clustered_unique_intervals = (
+            pr.PyRanges(
+                beta_values_w_bars_[
+                    ["Chromosome", "Start", "End", "Start_orig", "End_orig", "center"]
+                ].drop_duplicates(subset=["Start", "End"])
+            )
+            .cluster()
+            .df
+        )
+
+    beta_values_w_bars_["center"] = beta_values_w_bars_["Start"] + min_bar_width_bp / 2
+
+    beta_values_w_bars_['Start'] = beta_values_w_bars_['Start_orig']
+    beta_values_w_bars_['End'] = beta_values_w_bars_['End_orig']
+    return beta_values_w_bars_
+
+
+def _dodge_bar_group(group_df, min_bar_width_bp, min_bar_gap_bp):
+    if group_df.shape[0] > 1:
+        # group_df = clustered_unique_intervals.query('Cluster == 3')
+        pd.testing.assert_frame_equal(group_df.sort_values("Start"), group_df)
+        total_needed_width = (
+            group_df.shape[0] * (min_bar_width_bp + min_bar_gap_bp) - min_bar_gap_bp
+        )
+        cluster_width_bp = group_df.iloc[-1]["End"] - group_df.iloc[0]["Start"]
+        overhang = (total_needed_width - cluster_width_bp) / 2
+        first_start = group_df["Start"].iat[0] - overhang
+        starts = np.arange(
+            first_start,
+            first_start + total_needed_width,
+            min_bar_width_bp + min_bar_gap_bp,
+        )
+        ends = starts + min_bar_width_bp
+        group_df["Start"] = starts
+        group_df["End"] = ends
+        # bins_start = group_df.iloc[0]["Start_orig"] - max(
+        #     (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
+        # )
+        # bins_end = group_df.iloc[-1]["End_orig"] + max(
+        #     (total_bins_width - cluster_width_bp) / 2, cluster_width_bp * 0.01
+        # )
+        # bins = np.linspace(bins_start, bins_end, n_bins + 1)
+        # bin_centers = (bins + min_bar_width_bp / 2)[:-1]
+        # group_df["center"] = pd.cut(
+        #     group_df["center"], bins=bins, labels=bin_centers
+        # )
+    return group_df

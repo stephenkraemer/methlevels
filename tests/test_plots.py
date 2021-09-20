@@ -81,27 +81,63 @@ def test_barplot():
 
     # %%
     kwargs_to_test = dict(
-        a=dict(
+        # a=dict(
+        #     minimum_bar_width_pt=3,
+        #     merge_overlapping_bars=False,
+        #     barplot_lw=0.2,
+        #     show_splines=True,
+        # ),
+        # b=dict(
+        #     minimum_bar_width_pt=0,
+        #     merge_overlapping_bars=False,
+        #     barplot_lw=0.2,
+        #     show_splines=True,
+        # ),
+        # c=dict(
+        #     minimum_bar_width_pt=3,
+        #     merge_overlapping_bars='bin',
+        #     barplot_lw=0.2,
+        #     show_splines=False,
+        # ),
+        # with_single_region_boundary_box=dict(
+        #     minimum_bar_width_pt=3,
+        #     merge_overlapping_bars='bin',
+        #     barplot_lw=0,
+        #     show_splines=True,
+        #     region_properties=pd.DataFrame(
+        #         dict(Chromosome=["1"], Start=np.unique(plot_df.Start)[1], End=np.unique(plot_df.End)[-2],
+        #     )),
+        #     region_boundaries="box",
+        #     region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+        # ),
+        # with_single_region_boundary_box_and_binned_bars=dict(
+        #     minimum_bar_width_pt=3,
+        #     merge_overlapping_bars='bin',
+        #     barplot_lw=0,
+        #     show_splines=True,
+        #     region_properties=pd.DataFrame(
+        #         dict(Chromosome=["1"], Start=np.unique(plot_df.Start)[1], End=np.unique(plot_df.End)[-3],
+        #     )),
+        #     region_boundaries="box",
+        #     region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+        # ),
+        # with_multiple_region_boundary_box_and_binned_bars=dict(
+        #     minimum_bar_width_pt=3,
+        #     merge_overlapping_bars='bin',
+        #     barplot_lw=0,
+        #     show_splines=True,
+        #     region_properties=pd.DataFrame(
+        #         dict(
+        #             Chromosome=["1", "1"],
+        #             Start=np.unique(plot_df.Start)[[0, 3]],
+        #             End=np.unique(plot_df.End)[[1, -1]],
+        #     )),
+        #     region_boundaries="box",
+        #     region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+        # ),
+        with_single_region_boundary_box_and_dodged_bars=dict(
             minimum_bar_width_pt=3,
-            merge_overlapping_bars=False,
-            barplot_lw=0.2,
-            show_splines=True,
-        ),
-        b=dict(
-            minimum_bar_width_pt=0,
-            merge_overlapping_bars=False,
-            barplot_lw=0.2,
-            show_splines=True,
-        ),
-        c=dict(
-            minimum_bar_width_pt=3,
-            merge_overlapping_bars=True,
-            barplot_lw=0.2,
-            show_splines=False,
-        ),
-        with_single_region_boundary_box=dict(
-            minimum_bar_width_pt=3,
-            merge_overlapping_bars=True,
+            merge_overlapping_bars='dodge',
             barplot_lw=0,
             show_splines=True,
             region_properties=pd.DataFrame(
@@ -109,21 +145,11 @@ def test_barplot():
             )),
             region_boundaries="box",
             region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+            min_gap_width_pt = 0.2,
         ),
-        with_single_region_boundary_box_and_binned_bars=dict(
+        with_multiple_region_boundary_box_and_dodged_bars=dict(
             minimum_bar_width_pt=3,
-            merge_overlapping_bars=True,
-            barplot_lw=0,
-            show_splines=True,
-            region_properties=pd.DataFrame(
-                dict(Chromosome=["1"], Start=np.unique(plot_df.Start)[1], End=np.unique(plot_df.End)[-3],
-            )),
-            region_boundaries="box",
-            region_boundaries_kws = {"color": "gray", "alpha": 0.5},
-        ),
-        with_multiple_region_boundary_box_and_binned_bars=dict(
-            minimum_bar_width_pt=3,
-            merge_overlapping_bars=True,
+            merge_overlapping_bars='dodge',
             barplot_lw=0,
             show_splines=True,
             region_properties=pd.DataFrame(
@@ -134,6 +160,7 @@ def test_barplot():
             )),
             region_boundaries="box",
             region_boundaries_kws = {"color": "gray", "alpha": 0.5},
+            min_gap_width_pt = 1,
         ),
     )
 
