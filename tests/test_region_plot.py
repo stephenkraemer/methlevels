@@ -226,7 +226,7 @@ Chromosome Start End name
             yticks_major=(0, 1),
             yticks_minor=(0.5,),
             n_yticklabels=3,
-            merge_overlapping_bars=True,
+            merge_overlapping_bars='dodge',
             minimum_bar_width_pt=1,
             barplot_lw=0.3,
         ),

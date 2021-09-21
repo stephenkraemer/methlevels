@@ -40,9 +40,12 @@ def region_plot(
 
     Parameters
     ----------
+    chrom, start, end
+        beta_values_gr, gene_anno_gr and genomic_regions (all individual pyranges) are restricted to chrom, start and end; for performance reason, still consider doing this upfront if you have large pyranges
     beta_values_gr
         cpg methylation levels with CpG coordinates
         one column per subject with beta values in dataframe
+        ie Chromosome Start End subject1 subject2 ...
     gencode_gr
         genomic ranges representation of genomic regions of interes
         must contain at least these GTF format columns (uppercase): Feature
@@ -99,9 +102,10 @@ def region_plot(
         value_name="beta_value",
     )
 
-    gencode_df = gene_anno_gr["11", start:end].df.loc[  # type: ignore
-        lambda df: df["Feature"].isin(["transcript", "exon", "UTR"])
-    ]
+    if gene_anno_gr:
+        gencode_df = gene_anno_gr[chrom, start:end].df.loc[  # type: ignore
+            lambda df: df["Feature"].isin(["transcript", "exon", "UTR"])
+        ]
 
     if not plot_genomic_region_track_kwargs:
         plot_genomic_region_track_kwargs = {}
@@ -170,14 +174,15 @@ def region_plot(
                 **plot_genomic_region_track_kwargs.get(track_name, {}),
             )
 
-    plot_gene_model(
-        df=gencode_df,
-        offset=offset,
-        xlabel="Position (bp)",
-        ax=axes_d["gene_anno"],
-        roi=(start, end),
-        **gene_model_kwargs,
-    )
+    if gene_anno_gr:
+        plot_gene_model(
+            df=gencode_df,
+            offset=offset,
+            xlabel="Position (bp)",
+            ax=axes_d["gene_anno"],
+            roi=(start, end),
+            **gene_model_kwargs,
+        )
     # %%
 
     return fig, axes_d
