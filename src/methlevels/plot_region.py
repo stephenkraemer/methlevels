@@ -1,4 +1,5 @@
 import pandas as pd
+import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -9,10 +10,10 @@ from matplotlib.figure import Figure
 import matplotlib as mpl
 from methlevels.plot_utils import cm
 from methlevels.plot_genomic import plot_gene_model, plot_genomic_region_track
-from methlevels.plot_methlevels import bar_plot
+from methlevels.plot_methlevels import bar_plot, _get_bar_width_bp
 import codaplot.utils as coutils
 import pyranges as pr
-from typing import List, Dict, Tuple, Optional, Union, Any
+from typing import List, Dict, Tuple, Optional, Union, Any, Callable
 
 print("reloaded plot_region")
 
@@ -23,14 +24,20 @@ def region_plot(
     start: int,
     end: int,
     subject_order: List[str],
-    figsize: Tuple[float, float],
-        bar_plot_kwargs: Optional[Dict[str, Any]] = None,
-    gene_axes_size: float = 1,
-    anno_axes_size: float = 0.5,
+    title: Optional[str] = None,
+    bar_plot_kwargs: Optional[Dict[str, Any]] = None,
+    gene_axes_size: float = 1 / 2.54,
+    anno_axes_size: float = 0.5 / 2.54,
+    drop_empty_axes: bool = False,
+    fig_width: float = 7 / 2.54,
+    fig_height: Optional[float] = None,
+    methlevel_axes_size: Optional[float] = None,
     h_pad=0,
     anno_axes_padding: float = 0.02,
     gene_anno_gr: Optional[pr.PyRanges] = None,
     genomic_regions: Optional[Dict[str, pr.PyRanges]] = None,
+    custom_axes_funcs: Optional[Dict[str, Tuple[Callable, Dict[str, Any]]]] = None,
+    custom_axes_sizes: Tuple[float, ...] = tuple(),
     gene_model_kwargs: Optional[Dict[str, Any]] = None,
     plot_genomic_region_track_kwargs: Optional[Dict[str, Dict[str, Any]]] = None,
     offset: Union[float, bool] = True,
@@ -41,7 +48,8 @@ def region_plot(
     Parameters
     ----------
     chrom, start, end
-        beta_values_gr, gene_anno_gr and genomic_regions (all individual pyranges) are restricted to chrom, start and end; for performance reason, still consider doing this upfront if you have large pyranges
+        start and end provide the xlim
+        beta_values_gr, gene_anno_gr and genomic_regions (all individual pyranges) are automatically restricted to chrom, start and end; for performance reason, still consider doing this upfront if you have large pyranges
     beta_values_gr
         cpg methylation levels with CpG coordinates
         one column per subject with beta values in dataframe
@@ -73,7 +81,14 @@ def region_plot(
         size in inch for the gene anno axes (if present)
     anno_axes_size
         size in inch for each individual annotation axes (if present)
-    figsize
+    drop_empty_axes
+        if True, do not create (empty) axes for empty pyranges
+    fig_width
+        figure width in inch
+    fig_height
+        figure height in inch, automatically determine methlevel_axes_size; do not pass both fig_height and methlevel_axes_size
+    methlevel_axes_size
+        size in inch for each individual methlevels axes; do not pass both fig_height and methlevel_axes_size
     offset
         if specified, forces offest notation.
         either specify True for automatic offset detection or a float
@@ -86,14 +101,18 @@ def region_plot(
         if True, plot x axis for all plots to make sure they align
     """
 
-
     if not bar_plot_kwargs:
         bar_plot_kwargs = {}
-    mangaged_bar_plot_args = ['beta_values', 'axes', 'subject_order', 'offset']
+    mangaged_bar_plot_args = ["beta_values", "axes", "subject_order", "offset"]
     assert not any([x in bar_plot_kwargs.keys() for x in mangaged_bar_plot_args])
 
     if not gene_model_kwargs:
         gene_model_kwargs = {}
+
+    pd.testing.assert_frame_equal(
+        beta_values_gr[chrom].df.sort_values(["Chromosome", "Start", "End"]),  # type: ignore
+        beta_values_gr[chrom].df,  # type: ignore
+    )
 
     plot_df = pd.melt(
         beta_values_gr[chrom, start:end].df,  # type: ignore
@@ -101,11 +120,6 @@ def region_plot(
         var_name="subject",
         value_name="beta_value",
     )
-
-    if gene_anno_gr:
-        gencode_df = gene_anno_gr[chrom, start:end].df.loc[  # type: ignore
-            lambda df: df["Feature"].isin(["transcript", "exon", "UTR"])
-        ]
 
     if not plot_genomic_region_track_kwargs:
         plot_genomic_region_track_kwargs = {}
@@ -118,31 +132,56 @@ def region_plot(
         n_main_plots,
         gene_axes_size=gene_axes_size if gene_anno_gr else 0,
         anno_axes_size=anno_axes_size,
+        methlevel_axes_size=methlevel_axes_size,
         anno_axes_padding=anno_axes_padding,
+        custom_axes_sizes=custom_axes_sizes,
         n_annos=n_annos,
-        figsize=figsize,
         h_pad=h_pad,
+        fig_width=fig_width,
+        fig_height=fig_height,
     )
 
-    bar_plot(
+    # assert equal motif size for all motifs
+    # add xmargin (in bp) to xlim, xlim will be passed to all plotting functions
+
+    # assert that only one motif size is present
+    assert plot_df.eval("End - Start").nunique() == 1
+    motif_size = plot_df.iloc[[0]].eval("End - Start").iloc[0]  # type: ignore
+
+    ax = axes_d["methlevels"][0]
+    ax.set_xlim(start, end)
+    assert "minimum_bar_width_pt" in bar_plot_kwargs
+    # add spline line width because axis spline will cover bars if its wide even if there is a margin to show the bar fully in principle
+    min_bar_width_bp = _get_bar_width_bp(
+        ax=ax,
+        minimum_bar_width_pt=bar_plot_kwargs["minimum_bar_width_pt"]
+        + mpl.rcParams["axes.linewidth"],
+        motif_size=motif_size,
+    )
+    start = start - min_bar_width_bp
+    end = end + min_bar_width_bp
+
+    unique_coords = bar_plot(
         beta_values=plot_df,
         axes=axes_d["methlevels"],
+        xlim=(start, end),
+        xmargin=0,
         subject_order=subject_order,
         offset=offset,
         **bar_plot_kwargs,
     )
 
-    # Remove x axis labels if there is any annotation plot below (which will provide the coordinates, unless we are debugging this plot
-    if genomic_regions or gene_anno_gr and not debug:
-        axes_d["methlevels"][-1].tick_params(
-            axis="x",
-            which="both",
-            bottom=False,
-            labelbottom=False,
-            labelsize=0,
-            length=0,
-        )
-        axes_d["methlevels"][-1].set_xlabel(None)
+    # # Remove x axis labels if there is any annotation plot below (which will provide the coordinates, unless we are debugging this plot
+    # if (genomic_regions or gene_anno_gr or custom_axes_funcs) and not debug:
+    #     axes_d["methlevels"][-1].tick_params(
+    #         axis="x",
+    #         which="both",
+    #         bottom=False,
+    #         labelbottom=False,
+    #         labelsize=0,
+    #         length=0,
+    #     )
+    #     axes_d["methlevels"][-1].set_xlabel(None)
 
     if genomic_regions:
 
@@ -158,7 +197,7 @@ def region_plot(
                 continue
             if debug:
                 no_coords = False
-            elif (i == len(genomic_regions)) and (not gene_anno_gr):
+            elif (i == len(genomic_regions) - 1) and (not gene_anno_gr):
                 no_coords = False
             else:
                 no_coords = True
@@ -166,7 +205,7 @@ def region_plot(
                 gr,
                 ax,
                 offset=offset,
-                roi=(start, end),
+                xlim=(start, end),
                 ax_abs_height=anno_axes_size,
                 label_size=6,
                 ymargin=0.05,
@@ -175,15 +214,51 @@ def region_plot(
             )
 
     if gene_anno_gr:
+        gencode_df = gene_anno_gr[chrom, start:end].df.loc[  # type: ignore
+            lambda df: df["Feature"].isin(["transcript", "exon", "UTR"])
+        ]
         plot_gene_model(
             df=gencode_df,
             offset=offset,
+            xlim=(start, end),
             xlabel="Position (bp)",
             ax=axes_d["gene_anno"],
-            roi=(start, end),
             **gene_model_kwargs,
         )
     # %%
+
+    if custom_axes_funcs:
+        for ax, (track_name, (func, kwargs)) in zip(
+            axes_d["custom"], custom_axes_funcs.items()
+        ):
+            ax.set_xlim(start, end)
+            func(
+                ax=ax,
+                context_infos=dict(
+                    start=start,
+                    end=end,
+                    title=title,
+                    unique_coords=unique_coords,
+                    bar_width=min_bar_width_bp,
+                    barplot_lw=bar_plot_kwargs.get("barplot_lw", 0),
+                ),
+                **kwargs,
+            )
+
+    # Remove x axis labels if there is any annotation plot below (which will provide the coordinates, unless we are debugging this plot
+    for ax in axes_d["all"][:-1]:
+        ax.tick_params(
+            axis="x",
+            which="both",
+            bottom=False,
+            labelbottom=False,
+            labelsize=0,
+            length=0,
+        )
+        ax.set_xlabel(None)
+
+    if title:
+        axes_d["methlevels"][0].set_title(title)
 
     return fig, axes_d
 
@@ -194,9 +269,12 @@ def _setup_region_plot_figure(
     gene_axes_size,
     anno_axes_size,
     anno_axes_padding,
+    custom_axes_sizes,
     n_annos,
-    figsize,
     h_pad,
+    fig_width,
+    methlevel_axes_size,
+    fig_height,
 ):
     """
     Parameters
@@ -207,28 +285,68 @@ def _setup_region_plot_figure(
         size in inch of gene model plot, 0 if not plotted
     anno_axes_size
         size (inch) of each anno subplot, None if not plotted
+    methlevel_axes_size, fig_height
+        one must be None
     """
 
-    n_anno_paddings = 2 + n_annos - 1
-    n_rows = n_main_plots + bool(gene_axes_size) + n_annos + n_anno_paddings
+    if bool(methlevel_axes_size) + bool(fig_height) != 1:
+        raise ValueError()
+
+    n_custom = len(custom_axes_sizes)
+    n_anno_paddings = 1 + n_custom + n_annos
+    n_rows = (
+        n_main_plots
+        + 1  # anno_padding
+        + n_custom
+        + n_custom  # anno_padding
+        + n_annos
+        + n_annos  # anno_padding
+        + bool(gene_axes_size)
+    )
+
+    if fig_height is None:
+        fig_height = (
+            methlevel_axes_size * n_main_plots
+            + sum(custom_axes_sizes)
+            + n_annos * anno_axes_size
+            + gene_axes_size
+            + n_anno_paddings * anno_axes_padding
+        )
+        print(
+            'figure height is computed as "methlevel_axes_size * n_main_plots + gene_axes_size + n_annos * (anno_axes_size + anno_axes_padding) - anno_axes_padding", giving',
+            fig_height,
+            "inch or",
+            fig_height * 2.54,
+            "cm",
+        )
+    figsize = fig_width, fig_height
+
     fig = plt.figure(constrained_layout=True, dpi=180, figsize=figsize)
     fig.set_constrained_layout_pads(h_pad=h_pad, w_pad=0, hspace=0, wspace=0)
 
     height_ratio_main_axes = (
         (
             figsize[1]
+            - sum(custom_axes_sizes)
+            - n_annos * anno_axes_size
             - gene_axes_size
-            - anno_axes_size * n_annos
-            - figsize[1] * anno_axes_padding * n_anno_paddings
+            - n_anno_paddings * anno_axes_padding
         )
         / n_main_plots
         / figsize[1]
     )
     anno_axes_ratio = anno_axes_size / figsize[1]
+    custom_axes_ratios = (np.array(custom_axes_sizes) / figsize[1]).tolist()
+    anno_axes_padding_ratio = anno_axes_padding / figsize[1]
     height_ratios = (
         [height_ratio_main_axes] * n_main_plots
-        + [anno_axes_padding]
-        + [anno_axes_ratio, anno_axes_padding] * n_annos
+        + [anno_axes_padding_ratio]
+        + list(
+            itertools.chain.from_iterable(
+                zip(custom_axes_ratios, [anno_axes_padding_ratio] * n_custom)
+            )
+        )
+        + [anno_axes_ratio, anno_axes_padding_ratio] * n_annos
         + [gene_axes_size / figsize[1]] * bool(gene_axes_size)
     )
     assert np.isclose(sum(height_ratios), 1)
@@ -258,25 +376,46 @@ def _setup_region_plot_figure(
     )
 
     methlevel_axes = axes[:n_main_plots]
-    anno_axes = (
-        axes[(n_main_plots + 1) : (n_main_plots + n_annos * 2) : 2] if n_annos else None
+    custom_axes = (
+        axes[(n_main_plots + 1) : (n_main_plots + n_custom * 2) : 2]
+        if n_custom
+        else None
     )
-    print(anno_axes)
+    anno_axes = (
+        axes[
+            (n_main_plots + 1 + n_custom * 2) : (
+                n_main_plots + n_custom * 2 + n_annos * 2
+            ) : 2
+        ]
+        if n_annos
+        else None
+    )
     gene_anno_axes = axes[-1] if gene_axes_size else None
+    all_plot_axes_d = {
+        "methlevels": methlevel_axes,
+        "custom": custom_axes,
+        "annos": anno_axes,
+        "gene_anno": gene_anno_axes,
+        "all": axes,
+        "methlevel_ylabel": big_ax,
+    }
+    all_plot_axes_l = np.concatenate((
+        methlevel_axes,
+        custom_axes if custom_axes is not None else [],
+        anno_axes if anno_axes is not None else [],
+        [gene_anno_axes] if gene_anno_axes is not None else [],
+    ))
     if n_annos:
-        spacer_axes = axes[n_main_plots : (n_main_plots + n_annos * 2 + 1) : 2]
+        # spacer_axes = axes[n_main_plots : (n_main_plots + n_annos * 2 + 1) : 2]
+        spacer_axes = [ax for ax in axes if ax not in all_plot_axes_l]
         for ax in spacer_axes:
             coutils.strip_all_axis(ax)
     else:
         spacer_axes = None
 
-    return fig, {
-        "methlevels": methlevel_axes,
-        "annos": anno_axes,
-        "gene_anno": gene_anno_axes,
-        "spacer_axes": spacer_axes,
-        "methlevel_ylabel": big_ax,
-    }
+    all_axes_d = all_plot_axes_d.copy()
+    all_axes_d["spacer"] = spacer_axes
+    return fig, all_axes_d
 
 
 # %%

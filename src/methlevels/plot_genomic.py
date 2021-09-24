@@ -34,7 +34,7 @@ def plot_gene_model(
     xlabel: str,
     order_of_magnitude: Optional[int] = None,
     offset: Optional[Union[float, bool]] = None,
-    roi: Optional[Tuple[float, float]] = None,
+    xlim: Optional[Tuple[float, float]] = None,
     rectangle_height=0.5,
     rectangle_height_utrs=0.25,
     perc_of_axis_between_arrows=0.03,
@@ -57,9 +57,9 @@ def plot_gene_model(
         **NOTE** this feature may be untested
     offset
         if specified, forces offest notation. you can only specify oom or offset
-    roi
+    xlim
         if None, axes limits are set to the minimum and maximum genomic position in df
-        if set, can be used to zoom in. this is often useful, because the df will usually contain full feature intervals, but we may only be interest in the part of the intervals which overlaps with an roi
+        if set, can be used to zoom in. this is often useful, because the df will usually contain full feature intervals, but we may only be interest in the part of the intervals which overlaps with an xlim
     rectangle_height
         height of exon rectangles, given as fraction of the distance between two transcript lines
     rectangle_height_utrs
@@ -88,12 +88,12 @@ def plot_gene_model(
     # we will set the axis limits to roi later, if not None
     # without a priori restricting the df to the roi,
     # constrained layout fails, haven't checked it further yet
-    if roi:
+    if xlim:
         df = (  # type: ignore
             pr.PyRanges(df)
             .intersect(
                 pr.PyRanges(
-                    chromosomes=[df.Chromosome.iloc[0]], starts=[roi[0]], ends=[roi[1]]
+                    chromosomes=[df.Chromosome.iloc[0]], starts=[xlim[0]], ends=[xlim[1]]
                 )
             )
             .df
@@ -123,8 +123,8 @@ def plot_gene_model(
     sorted_transcript_parts = _get_sorted_transcript_parts(df)
 
     # Setting axis limits may have to be done before determining label sizes in next step (?)
-    if roi:
-        xmin, xmax = roi
+    if xlim:
+        xmin, xmax = xlim
     else:
         xmin = transcripts_sorted_by_start_and_length.Start.min()
         xmax = transcripts_sorted_by_start_and_length.End.max()
@@ -444,19 +444,20 @@ def _add_transcript_transcript_parts_and_arrows(
             rectangle_height=rectangle_height,
             gene_label_size=gene_label_size,
         )
-        _plot_transcript_parts(
-            df=sorted_transcript_parts.loc[[transcript_id]],
-            transcript_ser=transcript_ser,
-            row=transcript_rows[transcript_id],
-            ax=ax,
-            x_axis_size=xmax - xmin,
-            color="black",
-            rectangle_height=rectangle_height,
-            rectangle_height_utrs=rectangle_height_utrs,
-            perc_of_axis_between_arrows=perc_of_axis_between_arrows,
-            arrow_length_perc_of_x_axis_size=arrow_length_perc_of_x_axis_size,
-            arrow_height=arrow_height,
-        )
+        if transcript_id in sorted_transcript_parts.index:
+            _plot_transcript_parts(
+                df=sorted_transcript_parts.loc[[transcript_id]],
+                transcript_ser=transcript_ser,
+                row=transcript_rows[transcript_id],
+                ax=ax,
+                x_axis_size=xmax - xmin,
+                color="black",
+                rectangle_height=rectangle_height,
+                rectangle_height_utrs=rectangle_height_utrs,
+                perc_of_axis_between_arrows=perc_of_axis_between_arrows,
+                arrow_length_perc_of_x_axis_size=arrow_length_perc_of_x_axis_size,
+                arrow_height=arrow_height,
+            )
 
     # somehow the plotting code above resets this
     ax.set_ylim(y_bottom_margin + (rectangle_height / 2), max(transcript_rows.values()) + rectangle_height / 2)
@@ -483,13 +484,17 @@ def plot_genomic_region_track(
     order_of_magnitude: Optional[int] = None,
     offset: Optional[Union[float, bool]] = None,
     no_coords=False,
-    roi: Optional[Tuple[int, int]] = None,
+    xlim: Optional[Tuple[int, int]] = None,
     color: Union[str, Tuple] = 'gray',
     palette: Optional[Dict[str, str]] = None,
     show_names=False,
     ax_abs_height: Optional[float] = None,
-    label_size=6,
+    label_size: Optional[float]=None,
+    label_padding_in = 0.2 / 2.54,
     ymargin=0.05,
+    title: Optional[str] = None,
+    title_side: Literal['top', 'right'] = 'right',
+    title_size: Optional[float] = None,
 ):
     """Plot a single, non-overlapping set of genomic regions onto an Axes
 
@@ -512,7 +517,8 @@ def plot_genomic_region_track(
     ax_abs_size
         size of Axes in inch, to allow fitting the region labels into the plot
         required if show_names = True
-    roi: optionally, zoom into the data by using xlim = roi
+    xlim
+        optionally, zoom into the data by using xlim
     color
         default color
     palette
@@ -521,16 +527,28 @@ def plot_genomic_region_track(
         show text label below each region with a name in the name column. regions without name value do not get a label without error.
     label_size
         size of the region name label (for show_names = True, otherwise ignored)
+        if none defaults to mpl.rcParams['xtick.labelsize']
+    label_padding_in
+        padding between rectangle and region label
     ymargin
         margin between plot elements and axis as percentage of axes (aesthetic parameter which may be interesting to adjust the look at different plot sizes)
-
+    title
+        axes title, added at title_side; label size is taken from mpl.rcParams["axes.titlesize"]
+    title_side
+        add as standard axes title ('top') or with ax.annotate at the side ('right')
+    title_size
+        fontsize for track title, if None defaults to mpl.rcParams["axes.titlesize"]
     """
+
+    if not label_size:
+        label_size = mpl.rcParams['xtick.labelsize']
+    if not title_size:
+        title_size =  mpl.rcParams["axes.titlesize"]
 
     if (offset is not None) and not offset:
         offset = None
     assert not ((order_of_magnitude is not None) and (offset is not None))
 
-    label_padding_in = 0.1 / 2.54
 
     if show_names:
         assert ax_abs_height is not None
@@ -543,12 +561,12 @@ def plot_genomic_region_track(
     else:
         ax_fraction_for_rectangles = 1 - ymargin
 
-    if roi:
-        granges_df = granges_gr[roi[0] : roi[1]].df
+    if xlim:
+        granges_df = granges_gr[xlim[0] : xlim[1]].df
     else:
         granges_df = granges_gr.df
-        roi = granges_df["Start"].min(), granges_df["End"].max()
-    ax.set_xlim(roi)
+        xlim = granges_df["Start"].min(), granges_df["End"].max()
+    ax.set_xlim(xlim)
 
     ax.set(ylim=(0, 1))
 
@@ -584,9 +602,9 @@ def plot_genomic_region_track(
             if row_ser["name"]:
                 # place text in middle of displayed region, not in middle of full interval, parts of which may lie outside of displayed region
                 ax.text(
-                    x=min(row_ser["End"], roi[1])
+                    x=min(row_ser["End"], xlim[1])
                     - (
-                        (min(row_ser["End"], roi[1]) - max(row_ser["Start"], roi[0]))
+                        (min(row_ser["End"], xlim[1]) - max(row_ser["Start"], xlim[0]))
                         / 2
                     ),
                     y=ymargin,
@@ -602,3 +620,19 @@ def plot_genomic_region_track(
     )
 
     _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)
+
+    if title:
+        if title_side == 'top':
+            ax.set_title(title)
+        elif title_side == 'right':
+            # add to the right
+            ax.annotate(
+                title,
+                xy=(1.02, 0.5),
+                xycoords="axes fraction",
+                rotation=0,
+                ha="left",
+                va="center",
+                size=title_size,
+            )
+

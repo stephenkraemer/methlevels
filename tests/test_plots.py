@@ -49,7 +49,7 @@ def test_plot_gene_model():
         offset=True,
         xlabel="Position (bp)",
         ax=ax,
-        # roi=(roi_start, roi_end),
+        # xlim=(roi_start, roi_end),
         rectangle_height=0.4,
         rectangle_height_utrs=0.2,
         perc_of_axis_between_arrows=0.03,
@@ -252,7 +252,7 @@ Chromosome Start End name
     plot_genomic_region_track(
         granges_gr=granges_gr,
         ax=axes[1],
-        roi=(110_000_000 + 260, 110_000_000 + 410),
+        xlim=(110_000_000 + 260, 110_000_000 + 410),
         palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
         show_names=True,
         ax_abs_height=cm(3),
@@ -264,7 +264,7 @@ Chromosome Start End name
     plot_genomic_region_track(
         granges_gr=granges_gr,
         ax=axes[2],
-        roi=(110_000_000 + 260, 110_000_000 + 410),
+        xlim=(110_000_000 + 260, 110_000_000 + 410),
         palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
         show_names=True,
         ax_abs_height=cm(3),
