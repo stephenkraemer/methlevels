@@ -36,6 +36,7 @@ def region_plot(
     anno_axes_padding: float = 0.02,
     gene_anno_gr: Optional[pr.PyRanges] = None,
     genomic_regions: Optional[Dict[str, pr.PyRanges]] = None,
+    genomic_region_is_cyt_bound: Optional[Dict[str, bool]] = None,
     custom_axes_funcs: Optional[Dict[str, Tuple[Callable, Dict[str, Any]]]] = None,
     custom_axes_sizes: Tuple[float, ...] = tuple(),
     gene_model_kwargs: Optional[Dict[str, Any]] = None,
@@ -109,6 +110,9 @@ def region_plot(
     if not gene_model_kwargs:
         gene_model_kwargs = {}
 
+    if genomic_region_is_cyt_bound is None:
+        genomic_region_is_cyt_bound = {}
+
     pd.testing.assert_frame_equal(
         beta_values_gr[chrom].df.sort_values(["Chromosome", "Start", "End"]),  # type: ignore
         beta_values_gr[chrom].df,  # type: ignore
@@ -161,6 +165,7 @@ def region_plot(
     start = start - min_bar_width_bp
     end = end + min_bar_width_bp
 
+    # Chromosome Start(orig) End(orig) center(bar) Start_bar End_bar ...
     unique_coords = bar_plot(
         beta_values=plot_df,
         axes=axes_d["methlevels"],
@@ -182,12 +187,47 @@ def region_plot(
     #         length=0,
     #     )
     #     axes_d["methlevels"][-1].set_xlabel(None)
+    # %%
 
     if genomic_regions:
 
         genomic_regions_subsetted = {
             name: gr[chrom, start:end] for name, gr in genomic_regions.items()
         }
+
+        if bar_plot_kwargs.get("merge_overlapping_bars") == 'dodge':
+
+            genomic_regions_subsetted2 = {}
+
+            for name, gr in genomic_regions_subsetted.items():
+                if genomic_region_is_cyt_bound.get(name):
+                    genomic_regions_subsetted2[name] =pr.PyRanges (
+                        gr.df.merge(
+                            unique_coords[["Chromosome", "Start", "Start_bar"]],
+                            on=["Chromosome", "Start"],
+                            how="left",
+                        )
+                        .merge(
+                            unique_coords[["Chromosome", "End", "End_bar"]],
+                            on=["Chromosome", "End"],
+                            how="left",
+                        )
+                        # we cannot find shifted interval borders if they lie outside of the plotted area; in these cases, just use the original interval boundary
+                        .assign(
+                            Start_bar=lambda df: df["Start_bar"].mask(
+                                df["Start"].lt(start), df["Start"]
+                            ),
+                            End_bar=lambda df: df["End_bar"].mask(
+                                df["End"].gt(end), df["End"]
+                            ),
+                        )
+                        .drop(["Start", "End"], axis=1)
+                        .rename(columns={"Start_bar": "Start", "End_bar": "End"})
+                    )
+                else:
+                    genomic_regions_subsetted2[name] = gr
+
+            genomic_regions_subsetted = genomic_regions_subsetted2
 
         for i, (ax, (track_name, gr)) in enumerate(
             zip(axes_d["annos"], genomic_regions_subsetted.items())
@@ -399,12 +439,14 @@ def _setup_region_plot_figure(
         "all": axes,
         "methlevel_ylabel": big_ax,
     }
-    all_plot_axes_l = np.concatenate((
-        methlevel_axes,
-        custom_axes if custom_axes is not None else [],
-        anno_axes if anno_axes is not None else [],
-        [gene_anno_axes] if gene_anno_axes is not None else [],
-    ))
+    all_plot_axes_l = np.concatenate(
+        (
+            methlevel_axes,
+            custom_axes if custom_axes is not None else [],
+            anno_axes if anno_axes is not None else [],
+            [gene_anno_axes] if gene_anno_axes is not None else [],
+        )
+    )
     if n_annos:
         # spacer_axes = axes[n_main_plots : (n_main_plots + n_annos * 2 + 1) : 2]
         spacer_axes = [ax for ax in axes if ax not in all_plot_axes_l]

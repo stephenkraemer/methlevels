@@ -284,10 +284,12 @@ def bar_plot(
         )
 
     else:
-        beta_values_w2 = beta_values
+        beta_values_w2 = beta_values.copy()
         beta_values_w2["center"] = beta_values_w2.Start + (motif_size - 1) / 2
+        beta_values_w2['Start_bar'] = beta_values_w2['center'] - min_bar_width_bp / 2
+        beta_values_w2['End_bar'] = beta_values_w2['center'] + min_bar_width_bp / 2
         clustered_unique_intervals_w_center = beta_values_w2[
-            ["Chromosome", "Start", "End", "center"]
+            ["Chromosome", "Start", "End", "center", 'Start_bar', 'End_bar']
         ].drop_duplicates()
 
     # Must be done AFTER optional beta value aggregation
@@ -889,13 +891,16 @@ def _dodge_overlapping_bars(beta_values_w_bars, min_bar_width_bp, min_bar_gap_bp
     clustered_unique_intervals["center"] = (
         clustered_unique_intervals["Start"] + min_bar_width_bp / 2
     )
+    clustered_unique_intervals['Start_bar'] = clustered_unique_intervals['Start']
+    clustered_unique_intervals['End_bar'] = clustered_unique_intervals['End']
     clustered_unique_intervals["Start"] = clustered_unique_intervals["Start_orig"]
     clustered_unique_intervals["End"] = clustered_unique_intervals["End_orig"]
+    clustered_unique_intervals = clustered_unique_intervals.drop(['Start_orig', 'End_orig'], axis=1)
 
     pd.testing.assert_frame_equal(
         clustered_unique_intervals,
         clustered_unique_intervals.sort_values(
-            ["Chromosome", "Start_orig", "End_orig"]
+            ["Chromosome", "Start", "End"]
         ),
     )
     pd.testing.assert_frame_equal(

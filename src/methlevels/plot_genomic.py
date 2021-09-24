@@ -333,15 +333,16 @@ def _get_sorted_transcript_parts(df):
             gr_exons_df = pd.DataFrame()
         transcript_parts_dfs.append(pd.concat([gr_exons_df, gr_utrs_df], axis=0))
 
-    # transcript parts (exons, utrs) sorted by ascending Start per transcript
-    transcript_parts_sorted = (
-        pd.concat(transcript_parts_dfs, axis=0)
-        # [['Chromosome', 'Start', 'End', 'transcript_id']]
-        # .assign(Chromosome = lambda df: df.Chromosome.astype(str))
-        .groupby("transcript_id")
-        .apply(lambda df: df.sort_values(["Start", "End"]))
-        .droplevel(-1)
-    )
+    transcript_parts_sorted = pd.concat(transcript_parts_dfs, axis=0)
+    if not transcript_parts_sorted.empty:
+        transcript_parts_sorted = (transcript_parts_sorted
+        # transcript parts (exons, utrs) sorted by ascending Start per transcript
+            # [['Chromosome', 'Start', 'End', 'transcript_id']]
+            # .assign(Chromosome = lambda df: df.Chromosome.astype(str))
+            .groupby("transcript_id")
+            .apply(lambda df: df.sort_values(["Start", "End"]))
+            .droplevel(-1)
+        )
 
     n_utr_and_exons_features_expected = (
         df.query('Feature == "exon" or "UTR" in Feature')
@@ -540,7 +541,7 @@ def plot_genomic_region_track(
         fontsize for track title, if None defaults to mpl.rcParams["axes.titlesize"]
     """
 
-    if not label_size:
+    if label_size is None:
         label_size = mpl.rcParams['xtick.labelsize']
     if not title_size:
         title_size =  mpl.rcParams["axes.titlesize"]
@@ -554,7 +555,7 @@ def plot_genomic_region_track(
         assert ax_abs_height is not None
 
     if show_names:
-        label_height_in = label_size * 1 / 72
+        label_height_in = label_size * 1 / 72  # type: ignore
         ax_fraction_for_rectangles = (
             1 - ymargin - (label_height_in + label_padding_in) / ax_abs_height
         )
