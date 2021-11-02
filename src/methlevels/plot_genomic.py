@@ -31,6 +31,78 @@ from typing import Literal
 print('reloaded plot genomic')
 
 
+def plot_gene_model_get_height(
+    df: pd.DataFrame,
+    row_height_in: float,
+    xlim: Optional[Tuple[float, float]] = None,
+        ):
+
+    # The logic is copy pasted from plot_gene_model and needs to be adapted if the plotting function changes
+
+    # we will set the axis limits to roi later, if not None
+    # without a priori restricting the df to the roi,
+    # constrained layout fails, haven't checked it further yet
+    if xlim:
+        df = (  # type: ignore
+            pr.PyRanges(df)
+            .intersect(
+                pr.PyRanges(
+                    chromosomes=[df.Chromosome.iloc[0]],
+                    starts=[xlim[0]],
+                    ends=[xlim[1]],
+                )
+            )
+            .df
+        )
+
+    assert all(
+        [
+            x in df.columns
+            for x in [
+                "Chromosome",
+                "Feature",
+                "Start",
+                "End",
+                "Strand",
+                "transcript_id",
+                "gene_name",
+            ]
+        ]
+    )
+
+    df["Chromosome"] = df["Chromosome"].astype(str)
+    # bug in groupby-apply when df['Chromosome'].dtype == "category"
+    # generally, there where multiple categorical related bugs in the past, and we don't
+    # need a categorical here, so lets completely avoid it by working with strings
+
+    transcripts_sorted_by_start_and_length = _get_sorted_transcripts(df)
+    sorted_transcript_parts = _get_sorted_transcript_parts(df)
+
+    # Setting axis limits may have to be done before determining label sizes in next step (?)
+    if xlim:
+        xmin, xmax = xlim
+    else:
+        xmin = transcripts_sorted_by_start_and_length.Start.min()
+        xmax = transcripts_sorted_by_start_and_length.End.max()
+
+    fig, ax = plt.subplots(1, 1, constrained_layout=True, dpi=180, figsize=(4, 4))
+    fig.set_constrained_layout_pads(hspace=0, wspace=0, h_pad=0, w_pad=0)
+
+    ax.set_xlim(xmin, xmax)
+
+    transcripts_sorted_by_start_and_length_with_label_pos = (
+        _add_transcript_label_position_columns(
+            transcripts_sorted_by_start_and_length, ax, xmin, xmax
+        )
+    )
+
+    transcript_rows = _compute_transcript_row_placement(
+        transcripts_sorted_by_start_and_length_with_label_pos
+    )
+
+    return (max(transcript_rows.values()) + 0.5) * row_height_in
+
+
 def plot_gene_model(
     df: pd.DataFrame,
     ax: Axes,
