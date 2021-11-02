@@ -256,7 +256,7 @@ Chromosome Start End name
         palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
         show_names=True,
         ax_abs_height=cm(3),
-        label_size=6,
+        label_fontsize=6,
         no_coords=True,
     )
 
@@ -268,7 +268,7 @@ Chromosome Start End name
         palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
         show_names=True,
         ax_abs_height=cm(3),
-        label_size=6,
+        label_fontsize=6,
         no_coords=False,
         ymargin=0.1,
         offset=109_900_000,

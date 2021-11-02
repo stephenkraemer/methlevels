@@ -1,5 +1,6 @@
 from typing import Optional, Union, Dict, Tuple
 import codaplot.utils as coutils
+from adjustText import adjust_text
 
 import matplotlib.text as mpltext
 import matplotlib as mpl
@@ -26,6 +27,8 @@ from methlevels.utils import NamedColumnsSlice as ncls
 import matplotlib.patches as mpatches
 import matplotlib.collections
 from typing import Literal
+
+print('reloaded plot genomic')
 
 
 def plot_gene_model(
@@ -93,7 +96,9 @@ def plot_gene_model(
             pr.PyRanges(df)
             .intersect(
                 pr.PyRanges(
-                    chromosomes=[df.Chromosome.iloc[0]], starts=[xlim[0]], ends=[xlim[1]]
+                    chromosomes=[df.Chromosome.iloc[0]],
+                    starts=[xlim[0]],
+                    ends=[xlim[1]],
                 )
             )
             .df
@@ -335,8 +340,9 @@ def _get_sorted_transcript_parts(df):
 
     transcript_parts_sorted = pd.concat(transcript_parts_dfs, axis=0)
     if not transcript_parts_sorted.empty:
-        transcript_parts_sorted = (transcript_parts_sorted
-        # transcript parts (exons, utrs) sorted by ascending Start per transcript
+        transcript_parts_sorted = (
+            transcript_parts_sorted
+            # transcript parts (exons, utrs) sorted by ascending Start per transcript
             # [['Chromosome', 'Start', 'End', 'transcript_id']]
             # .assign(Chromosome = lambda df: df.Chromosome.astype(str))
             .groupby("transcript_id")
@@ -461,7 +467,10 @@ def _add_transcript_transcript_parts_and_arrows(
             )
 
     # somehow the plotting code above resets this
-    ax.set_ylim(y_bottom_margin + (rectangle_height / 2), max(transcript_rows.values()) + rectangle_height / 2)
+    ax.set_ylim(
+        y_bottom_margin + (rectangle_height / 2),
+        max(transcript_rows.values()) + rectangle_height / 2,
+    )
 
     ax.set(xlabel=xlabel)
 
@@ -482,20 +491,20 @@ def _add_transcript_transcript_parts_and_arrows(
 def plot_genomic_region_track(
     granges_gr,
     ax,
+    patch_height_in = 0.4/2.54,
+    label_padding_in=0.2 / 2.54,
+    label_fontsize: Optional[float] = None,
     order_of_magnitude: Optional[int] = None,
     offset: Optional[Union[float, bool]] = None,
     no_coords=False,
     xlim: Optional[Tuple[int, int]] = None,
-    color: Union[str, Tuple] = 'gray',
+    color: Union[str, Tuple] = "gray",
     palette: Optional[Dict[str, str]] = None,
     show_names=False,
-    ax_abs_height: Optional[float] = None,
-    label_size: Optional[float]=None,
-    label_padding_in = 0.2 / 2.54,
-    ymargin=0.05,
     title: Optional[str] = None,
-    title_side: Literal['top', 'right'] = 'right',
+    title_side: Literal["top", "right"] = "right",
     title_size: Optional[float] = None,
+    do_adjust_text : bool = False,
 ):
     """Plot a single, non-overlapping set of genomic regions onto an Axes
 
@@ -531,8 +540,6 @@ def plot_genomic_region_track(
         if none defaults to mpl.rcParams['xtick.labelsize']
     label_padding_in
         padding between rectangle and region label
-    ymargin
-        margin between plot elements and axis as percentage of axes (aesthetic parameter which may be interesting to adjust the look at different plot sizes)
     title
         axes title, added at title_side; label size is taken from mpl.rcParams["axes.titlesize"]
     title_side
@@ -541,26 +548,14 @@ def plot_genomic_region_track(
         fontsize for track title, if None defaults to mpl.rcParams["axes.titlesize"]
     """
 
-    if label_size is None:
-        label_size = mpl.rcParams['xtick.labelsize']
+    if label_fontsize is None:
+        label_fontsize = mpl.rcParams["xtick.labelsize"]
     if not title_size:
-        title_size =  mpl.rcParams["axes.titlesize"]
+        title_size = mpl.rcParams["axes.titlesize"]
 
     if (offset is not None) and not offset:
         offset = None
     assert not ((order_of_magnitude is not None) and (offset is not None))
-
-
-    if show_names:
-        assert ax_abs_height is not None
-
-    if show_names:
-        label_height_in = label_size * 1 / 72  # type: ignore
-        ax_fraction_for_rectangles = (
-            1 - ymargin - (label_height_in + label_padding_in) / ax_abs_height
-        )
-    else:
-        ax_fraction_for_rectangles = 1 - ymargin
 
     if xlim:
         granges_df = granges_gr[xlim[0] : xlim[1]].df
@@ -569,71 +564,138 @@ def plot_genomic_region_track(
         xlim = granges_df["Start"].min(), granges_df["End"].max()
     ax.set_xlim(xlim)
 
-    ax.set(ylim=(0, 1))
+    # add some margin so that text does not lie directly on the x axis
+    ax.set(ylim=(- 0.05, 1))
+
+    if show_names:
+        (
+            max_text_width_data_coords,
+            max_text_height_data_coords,
+        ) = _get_max_text_height_width_in_x(
+            labels=granges_df['name'],
+            fontsize=label_fontsize,
+            ax=ax,
+            x="data_coordinates",
+        )
+
+        _, patch_height_data_coords = coutils.convert_inch_to_data_coords(
+            size=patch_height_in, ax=ax
+        )
+        # ax_fraction_for_rectangles = (
+        #     1 - (label_height_in + label_padding_in) / ax_abs_height
+        # )
+        # ax_text_top_va_y = 0 + (label_height_in / ax_abs_height)
+    else:
+        patch_height_data_coords = 1
 
     if no_coords:
-        coutils.strip_all_axis(ax)
+        coutils.strip_all_axis2(ax)
     else:
-        ax.tick_params(
-            axis="y",
-            which="both",
-            left=False,
-            labelleft=False,
-            labelsize=0,
-            length=0,
-        )
+        ax.yaxis.set_visible(False)
         ax.spines["left"].set_visible(False)
 
     rectangles = []
+    texts = []
+    xs = []
+    ys = []
     for _unused, row_ser in granges_df.iterrows():  # type: ignore
         if palette:
             curr_color = palette.get(row_ser["name"], color)
         else:
             curr_color = color
-        rectangles.append(
-            mpatches.Rectangle(  # type: ignore
-                xy=(row_ser.Start, 1 - ax_fraction_for_rectangles),
+        print('reloaded rectangle')
+        rect = mpatches.Rectangle(
+                xy=(row_ser.Start, 1 - patch_height_data_coords),
                 width=row_ser.End - row_ser.Start,
-                height=ax_fraction_for_rectangles,
+                height=patch_height_data_coords,
                 linewidth=0,
                 color=curr_color,
             )
-        )
+        rect.set_in_layout(False)
+        rectangles.append(rect)
         if show_names:
             if row_ser["name"]:
                 # place text in middle of displayed region, not in middle of full interval, parts of which may lie outside of displayed region
-                ax.text(
-                    x=min(row_ser["End"], xlim[1])
+                x = (min(row_ser["End"], xlim[1])
                     - (
                         (min(row_ser["End"], xlim[1]) - max(row_ser["Start"], xlim[0]))
                         / 2
-                    ),
-                    y=ymargin,
+                    ))
+                xs.append(x)
+                texts.append(ax.text(
+                    x=x,
+                    y=0,
                     s=row_ser["name"],
                     ha="center",
                     va="bottom",
-                    size=label_size,
-                )
+                    size=label_fontsize,
+                ))
+
     ax.add_collection(
         matplotlib.collections.PatchCollection(
             rectangles, match_original=True, zorder=3
         ),
     )
 
+    # jj snippets
+    # if do_adjust_text:
+    #     print('adjusting text')
+    #     adjust_text(
+    #         texts,
+    #         # x=xs,
+    #         # y=[1 - ax_fraction_for_rectangles] * len(xs),
+    #         # add_objects=None,
+    #         ax=ax,
+    #         expand_text=(1.2, 1.2),
+    #         # expand_points=(1.05, 1.2),
+    #         # expand_objects=(1.05, 1.2),
+    #         # expand_align=(1.05, 1.2),
+    #         autoalign=False,
+    #         va="top",
+    #         ha="center",
+    #         force_text=(0.2, 0.25),
+    #         # force_points=(0.2, 0.5),
+    #         # force_objects=(0.1, 0.25),
+    #         # lim=500,
+    #         # precision=0.01,
+    #         only_move={"text": "x"},
+    #         # text_from_text=True,
+    #         # text_from_points=True,
+    #         arrowprops=dict(arrowstyle='-', color='black', lw=0.5),
+    #     )
+
     _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)
 
     if title:
-        if title_side == 'top':
+        if title_side == "top":
             ax.set_title(title)
-        elif title_side == 'right':
+        elif title_side == "right":
             # add to the right
             ax.annotate(
                 title,
-                xy=(1.02, 0.5),
+                xy=(1.02, 1),
                 xycoords="axes fraction",
                 rotation=0,
                 ha="left",
-                va="center",
+                va="top",
                 size=title_size,
             )
 
+
+def _get_max_text_height_width_in_x(labels, fontsize, ax, x):
+    widths, heights = list(
+        zip(
+            *[
+                coutils.get_text_width_height_in_x(
+                    s=s,
+                    size=fontsize,
+                    ax=ax,
+                    x=x,
+                )
+                for s in labels
+            ]
+        )
+    )
+    max_text_width_data_coords = max(widths)
+    max_text_height_data_coords = max(heights)
+    return max_text_width_data_coords, max_text_height_data_coords

@@ -195,13 +195,13 @@ def region_plot(
             name: gr[chrom, start:end] for name, gr in genomic_regions.items()
         }
 
-        if bar_plot_kwargs.get("merge_overlapping_bars") == 'dodge':
+        if bar_plot_kwargs.get("merge_overlapping_bars") == "dodge":
 
             genomic_regions_subsetted2 = {}
 
             for name, gr in genomic_regions_subsetted.items():
                 if genomic_region_is_cyt_bound.get(name):
-                    genomic_regions_subsetted2[name] =pr.PyRanges (
+                    genomic_regions_subsetted2[name] = pr.PyRanges(
                         gr.df.merge(
                             unique_coords[["Chromosome", "Start", "Start_bar"]],
                             on=["Chromosome", "Start"],
@@ -247,8 +247,7 @@ def region_plot(
                 offset=offset,
                 xlim=(start, end),
                 ax_abs_height=anno_axes_size,
-                label_size=6,
-                ymargin=0.05,
+                label_fontsize=6,
                 no_coords=no_coords,
                 **plot_genomic_region_track_kwargs.get(track_name, {}),
             )

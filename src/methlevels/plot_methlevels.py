@@ -84,12 +84,19 @@ def bar_plot(
 
     This function is meant to plot methlevels for individual cytosines or (merged) cytosine-motifs (CG, CHG). In a single call, all cytosine (motifs) are expected to have the same size, ie single cytosines and CG motifs cannot be mixed. This could be changed in the future.
 
+    advantages of drawing all axes at once
+    --------------------------------------
+    - find axis limits across all samples, individual samples may be missing endpoint cpgs
+    - find all unique cpg positions across all samples prior to dodging, individual samples may miss some cpg positions
+    - dodging is only computed once and then used for all samples
+    - and more?
+
     bar width control, binning and dodging
     --------------------------------------
-    - definition: bar width = width of the rectangle representing a motif *without* its edge line; we use the bar widht in pt to calculate a bar widht in data coordinates (bp) which we pass to ax.bar(width=); if ax.bar is called with linewidth != 0, a line is centered (i assume) on the rectangle edges gbiven by width, and will therefore have a linewidth/2 overhang into the bar and beyond the bar. THIS MEANS THAT FOR SMALL BAR WIDTHS, A RELATIVELY LARGE EDGELINE WIDTH WILL MASK CONSIDERABLE PARTS OF THE BAR, MAKING IT LOOK EVEN THINNER! So generally linewidth should only be used for wider bars. given that we can enfore a padding between bars, the bar linewidth argument should perhaps be removed entirely
+    - definition: bar width = width of the rectangle representing a motif *without* its edge line; we use the bar widht in pt to calculate a bar widht in data coordinates (bp) which we pass to ax.bar(width=); if ax.bar is called with linewidth != 0, a line is centered (i assume) on the rectangle edges gbiven by width, and will therefore have a linewidth/2 overhang into the bar and beyond the bar. THIS MEANS THAT FOR SMALL BAR WIDTHS, A RELATIVELY LARGE EDGELINE WIDTH WILL MASK CONSIDERABLE PARTS OF THE BAR, MAKING IT LOOK EVEN THINNER (if the edgecolor is white)! So generally linewidth should only be used for wider bars. given that we can enfore a padding between bars, the bar linewidth argument should perhaps be removed entirely
     - the width of the bars indicating meth levels for individual cytosines can be increased beyond the motif bp width by setting minimum_bar_width_pt
       - NOTE if minimum_bar_width_pt is used (the default), bars for multiple motifs can overlap.
-    - there are two ways to deal with clusters of overlapping bars: replace the cluster of bars by binning the region and showing the average methylation for each bin (good for large regions) or dodge the bars. This is controlled by the merge_overlapping_bars argument
+    - there are two ways to deal with clusters of overlapping bars: replace the cluster of bars by binning the region and showing the average methylation for each bin (good for large regions) or dodge the bars (good for small regions). This is controlled by the merge_overlapping_bars argument
 
     other notes
     -----------
