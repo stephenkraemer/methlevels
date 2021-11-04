@@ -28,16 +28,35 @@ import matplotlib.patches as mpatches
 import matplotlib.collections
 from typing import Literal
 
-print('reloaded plot genomic')
+print("reloaded plot genomic")
 
 
 def plot_gene_model_get_height(
     df: pd.DataFrame,
-    row_height_in: float,
-    xlim: Optional[Tuple[float, float]] = None,
-        ):
+    axeswidth,
+    xlim,
+    exon_rect_height_in=0.3 / 2.54,
+    space_between_transcripts_in=0.3 / 2.54,
+    space_between_transcript_label_and_transcript_box_in=0.1 / 2.54,
+    label_fontsize=6,
+):
 
-    # The logic is copy pasted from plot_gene_model and needs to be adapted if the plotting function changes
+    # improve: the logic is copy pasted from plot_gene_model and needs to be adapted if the plotting function changes
+
+    assert all(
+        [
+            x in df.columns
+            for x in [
+                "Chromosome",
+                "Feature",
+                "Start",
+                "End",
+                "Strand",
+                "transcript_id",
+                "gene_name",
+            ]
+        ]
+    )
 
     # we will set the axis limits to roi later, if not None
     # without a priori restricting the df to the roi,
@@ -55,39 +74,21 @@ def plot_gene_model_get_height(
             .df
         )
 
-    assert all(
-        [
-            x in df.columns
-            for x in [
-                "Chromosome",
-                "Feature",
-                "Start",
-                "End",
-                "Strand",
-                "transcript_id",
-                "gene_name",
-            ]
-        ]
-    )
-
-    df["Chromosome"] = df["Chromosome"].astype(str)
     # bug in groupby-apply when df['Chromosome'].dtype == "category"
     # generally, there where multiple categorical related bugs in the past, and we don't
     # need a categorical here, so lets completely avoid it by working with strings
+    df["Chromosome"] = df["Chromosome"].astype(str)
 
     transcripts_sorted_by_start_and_length = _get_sorted_transcripts(df)
-    sorted_transcript_parts = _get_sorted_transcript_parts(df)
 
-    # Setting axis limits may have to be done before determining label sizes in next step (?)
+    # set xlim prior to getting text width in data coords
     if xlim:
         xmin, xmax = xlim
     else:
         xmin = transcripts_sorted_by_start_and_length.Start.min()
         xmax = transcripts_sorted_by_start_and_length.End.max()
 
-    fig, ax = plt.subplots(1, 1, constrained_layout=True, dpi=180, figsize=(4, 4))
-    fig.set_constrained_layout_pads(hspace=0, wspace=0, h_pad=0, w_pad=0)
-
+    fig, ax = plt.subplots(1, 1, dpi=180, figsize=(axeswidth, 4))
     ax.set_xlim(xmin, xmax)
 
     transcripts_sorted_by_start_and_length_with_label_pos = (
@@ -96,11 +97,41 @@ def plot_gene_model_get_height(
         )
     )
 
+    # transcript rows for historical reasons 0.5, 1.5..
     transcript_rows = _compute_transcript_row_placement(
         transcripts_sorted_by_start_and_length_with_label_pos
     )
+    n_rows = max(transcript_rows.values()) + 0.5
 
-    return (max(transcript_rows.values()) + 0.5) * row_height_in
+    # bottom margin so that text does not align with y axis spline
+    # exon rects and arrows were slightly cut at the top; did not investigate
+    # further yet, just also added margin at the top
+    ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
+
+    max_text_width_in, max_text_height_in = _get_max_text_height_width_in_x(
+        labels=transcripts_sorted_by_start_and_length_with_label_pos[
+            "gene_name"
+        ].unique(),
+        fontsize=label_fontsize,
+        ax=ax,
+        x="inch",
+    )
+
+    size_of_one_transcript_box_with_spacer = (
+        max_text_height_in
+        + space_between_transcript_label_and_transcript_box_in
+        + exon_rect_height_in
+        + space_between_transcripts_in
+    )
+
+    axes_height_in = (
+        ymargin_bottom_and_top_spacer_in
+        + size_of_one_transcript_box_with_spacer * n_rows
+        - space_between_transcripts_in
+        + ymargin_bottom_and_top_spacer_in
+    )
+
+    return axes_height_in
 
 
 def plot_gene_model(
@@ -110,13 +141,14 @@ def plot_gene_model(
     order_of_magnitude: Optional[int] = None,
     offset: Optional[Union[float, bool]] = None,
     xlim: Optional[Tuple[float, float]] = None,
-    rectangle_height=0.5,
-    rectangle_height_utrs=0.25,
-    perc_of_axis_between_arrows=0.03,
-    arrow_length_perc_of_x_axis_size=0.01,
-    arrow_height=0.15,
-    gene_label_size=5,
-    y_bottom_margin=-0.5,
+    exon_rect_height_in=0.3 / 2.54,
+    rectangle_height_utrs_frac=0.5,
+    space_between_transcripts_in=0.3 / 2.54,
+    space_between_transcript_label_and_transcript_box_in=0.1 / 2.54,
+    space_between_arrows_in=1 / 2.54,
+    arrow_length_in=0.075 / 2.54,
+    arrow_height_frac=0.5,
+    label_fontsize=6,
 ):
     """Plot gene model
 
@@ -155,10 +187,24 @@ def plot_gene_model(
         ylim min is set to y_bottom_margin, e.g. -0.5, to give some margin at the bottom of the plot. adjust depending on plot size. this should be better automated in the future
     """
 
+    # argument handling
     if (offset is not None) and not offset:
         offset = None
-
     assert not ((order_of_magnitude is not None) and (offset is not None))
+    assert all(
+        [
+            x in df.columns
+            for x in [
+                "Chromosome",
+                "Feature",
+                "Start",
+                "End",
+                "Strand",
+                "transcript_id",
+                "gene_name",
+            ]
+        ]
+    )
 
     # we will set the axis limits to roi later, if not None
     # without a priori restricting the df to the roi,
@@ -176,30 +222,15 @@ def plot_gene_model(
             .df
         )
 
-    assert all(
-        [
-            x in df.columns
-            for x in [
-                "Chromosome",
-                "Feature",
-                "Start",
-                "End",
-                "Strand",
-                "transcript_id",
-                "gene_name",
-            ]
-        ]
-    )
-
-    df["Chromosome"] = df["Chromosome"].astype(str)
     # bug in groupby-apply when df['Chromosome'].dtype == "category"
     # generally, there where multiple categorical related bugs in the past, and we don't
     # need a categorical here, so lets completely avoid it by working with strings
+    df["Chromosome"] = df["Chromosome"].astype(str)
 
     transcripts_sorted_by_start_and_length = _get_sorted_transcripts(df)
     sorted_transcript_parts = _get_sorted_transcript_parts(df)
 
-    # Setting axis limits may have to be done before determining label sizes in next step (?)
+    # set xlim prior to getting text width in data coords
     if xlim:
         xmin, xmax = xlim
     else:
@@ -207,34 +238,108 @@ def plot_gene_model(
         xmax = transcripts_sorted_by_start_and_length.End.max()
     ax.set_xlim(xmin, xmax)
 
+    # we set ylim to (0, 1) and then use absolute size -> data coord mapping to place the artists
+    ax.set_ylim(0, 1)
+
     transcripts_sorted_by_start_and_length_with_label_pos = (
         _add_transcript_label_position_columns(
             transcripts_sorted_by_start_and_length, ax, xmin, xmax
         )
     )
 
+    # transcript rows for historical reasons 0.5, 1.5..
     transcript_rows = _compute_transcript_row_placement(
         transcripts_sorted_by_start_and_length_with_label_pos
     )
+    n_rows = max(transcript_rows.values()) + 0.5
+
+    # bottom margin so that text does not align with y axis spline
+    # exon rects and arrows were slightly cut at the top; did not investigate
+    # further yet, just also added margin at the top
+    ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
+
+    max_text_width_in, max_text_height_in = _get_max_text_height_width_in_x(
+        labels=transcripts_sorted_by_start_and_length_with_label_pos[
+            "gene_name"
+        ].unique(),
+        fontsize=label_fontsize,
+        ax=ax,
+        x="inch",
+    )
+
+    size_of_one_transcript_box_with_spacer = (
+        max_text_height_in
+        + space_between_transcript_label_and_transcript_box_in
+        + exon_rect_height_in
+        + space_between_transcripts_in
+    )
+
+    axes_height_in = (
+        ymargin_bottom_and_top_spacer_in
+        + size_of_one_transcript_box_with_spacer * n_rows
+        - space_between_transcripts_in
+        + ymargin_bottom_and_top_spacer_in
+    )
+
+    # map to historical size params
+    # =============================
+
+    # fig, ax = plt.subplots(1, 1, dpi=180, figsize=(cm(8), axes_height_in))
+    # fig.subplots_adjust(0, 0, 1, 1, 0, 0)
+    # ax.set_ylim(0, 1)
+    # ax.set_xlim(xmin, xmax)
+
+    # - transcript_rows should give center of transcript line in data coords
+    transcript_rows_2 = {}
+    for transcript_id, row_idx in transcript_rows.items():
+        transcript_rows_2[transcript_id] = coutils.convert_inch_to_data_coords(
+            size=(
+                ymargin_bottom_and_top_spacer_in
+                + size_of_one_transcript_box_with_spacer * (row_idx + 0.5)
+                - space_between_transcripts_in
+                - exon_rect_height_in / 2
+            ),
+            ax=ax,
+        )[1]
+
+    exon_height_data_coords = coutils.convert_inch_to_data_coords(
+        size=exon_rect_height_in, ax=ax
+    )[1]
+    utr_height_data_coords = exon_height_data_coords * rectangle_height_utrs_frac
+    perc_of_xaxis_between_arrows = coutils.convert_inch_to_data_coords(
+        size=space_between_arrows_in, ax=ax
+    )[0]
+    arrow_length_data_coords = coutils.convert_inch_to_data_coords(
+        size=arrow_length_in, ax=ax
+    )[0]
+    arrow_height_data_coords = arrow_height_frac * exon_height_data_coords
+    exon_text_spacer_height_data_coords = coutils.convert_inch_to_data_coords(
+        size=space_between_transcript_label_and_transcript_box_in, ax=ax
+    )[1]
 
     _add_transcript_transcript_parts_and_arrows(
         transcripts_sorted_by_start_and_length=transcripts_sorted_by_start_and_length,
-        transcript_rows=transcript_rows,
+        transcript_rows=transcript_rows_2,
         sorted_transcript_parts=sorted_transcript_parts,
         ax=ax,
         xlabel=xlabel,
         xmin=xmin,
         xmax=xmax,
-        rectangle_height=rectangle_height,
-        rectangle_height_utrs=rectangle_height_utrs,
-        perc_of_axis_between_arrows=perc_of_axis_between_arrows,
-        arrow_length_perc_of_x_axis_size=arrow_length_perc_of_x_axis_size,
-        arrow_height=arrow_height,
-        gene_label_size=gene_label_size,
-        y_bottom_margin=y_bottom_margin,
+        exon_height_data_coords=exon_height_data_coords,
+        exon_text_spacer_height_data_coords=exon_text_spacer_height_data_coords,
+        utr_height_data_coords=utr_height_data_coords,
+        dist_between_arrows_data_coords=perc_of_xaxis_between_arrows,
+        arrow_length_data_coords=arrow_length_data_coords,
+        arrow_height_data_coords=arrow_height_data_coords,
+        gene_label_size=label_fontsize,
     )
 
     _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)
+
+    ax.yaxis.set_visible(False)
+    ax.spines["left"].set_visible(False)
+
+    ax.set(xlabel=xlabel)
 
 
 def _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude):
@@ -262,13 +367,23 @@ def get_text_width_data_coordinates(s, ax):
     return data_coord_bbox.width
 
 
-def _plot_transcript(transcript_ser, row, ax, color, rectangle_height, gene_label_size):
+def _plot_transcript(
+    transcript_ser,
+    row,
+    ax,
+    color,
+    exon_height_data_coord,
+    exon_text_spacer_height_data_coords,
+    gene_label_size,
+):
+
     ax.hlines(y=row, xmin=transcript_ser.Start, xmax=transcript_ser.End, color=color)
+
     ax.text(
         x=transcript_ser.loc["transcript_label_center"],
         # this puts it right in the middle - no clear association with a transcript, and may go out of bounds at the bottom row
         # y = row - rectangle_height/2 - (1 - rectangle_height) / 2,
-        y=row - rectangle_height / 2 - 0.1,
+        y=row - exon_height_data_coord / 2 - exon_text_spacer_height_data_coords,
         s=transcript_ser.gene_name,
         ha="center",
         va="top",
@@ -298,20 +413,30 @@ def _plot_transcript_parts(
     ax,
     x_axis_size,
     color,
-    rectangle_height,
+    exon_height_data_coords,
     rectangle_height_utrs,
-    perc_of_axis_between_arrows,
-    arrow_length_perc_of_x_axis_size,
-    arrow_height,
+    dist_between_arrows_data_coords,
+    arrow_length_data_coords,
+    arrow_height_data_coords,
 ):
+    """
+
+    Parameters
+    ----------
+    df
+        info about utrs and exons, may be empty
+    """
+
+    # if df (of exons and utrs) is not empty,
+    # Draw exon and UTR rectangles patches
     rectangles = []
     for _unused, row_ser in df.iterrows():
         if "UTR" not in row_ser.Feature:
             rectangles.append(
                 mpatches.Rectangle(  # type: ignore
-                    xy=(row_ser.Start, row - (rectangle_height / 2)),
+                    xy=(row_ser.Start, row - (exon_height_data_coords / 2)),
                     width=row_ser.End - row_ser.Start,
-                    height=rectangle_height,
+                    height=exon_height_data_coords,
                     # linewidth=0,
                     color=color,
                 )
@@ -326,24 +451,26 @@ def _plot_transcript_parts(
                     color=color,
                 )
             )
-    ax.add_collection(
-        matplotlib.collections.PatchCollection(
-            rectangles, match_original=True, zorder=3
-        ),
-    )
-    # introns with arrows
+    if rectangles:
+        ax.add_collection(
+            matplotlib.collections.PatchCollection(
+                rectangles, match_original=True, zorder=3
+            ),
+        )
 
+    # decorate introns with arrows
     arrow_positions = []
-    for _unused, ser in (  # type: ignore
-        pr.PyRanges(transcript_ser.to_frame().T).subtract(pr.PyRanges(df)).df.iterrows()
-    ):
-        size = ser.End - ser.Start
-        n_arrows = np.floor(
-            (size) / (perc_of_axis_between_arrows * x_axis_size)
-        ).astype(int)
-        between_arrows = size / (n_arrows + 1)
-        for i in range(1, n_arrows + 1):
-            arrow_positions.append(ser.Start + i * between_arrows)
+    intron_intervals_df = (
+        pr.PyRanges(transcript_ser.to_frame().T).subtract(pr.PyRanges(df)).df
+    )
+    for _unused, ser in intron_intervals_df.iterrows():
+        # arrows are plotted with tip at the arrow positions
+        # -> first arrow at exon/utr + dist_between_arrows_data_coords + arrow_length_data_coords
+        arrow_positions = np.arange(
+            ser["Start"] + dist_between_arrows_data_coords + arrow_length_data_coords,
+            ser["End"] - dist_between_arrows_data_coords * 0.5,
+            dist_between_arrows_data_coords + arrow_length_data_coords,
+        )
     arrow_positions
 
     if transcript_ser.Strand == "+":
@@ -353,18 +480,18 @@ def _plot_transcript_parts(
     for pos in arrow_positions:
         ax.plot(
             [
-                pos - arrow_length_perc_of_x_axis_size * x_axis_size / 2,
-                pos + arrow_length_perc_of_x_axis_size * x_axis_size / 2,
+                pos - arrow_length_data_coords,
+                pos,
             ],
-            [row - arrow_height, row][slicer],
+            [row - arrow_height_data_coords, row][slicer],
             color=color,
         )
         ax.plot(
             [
-                pos - arrow_length_perc_of_x_axis_size * x_axis_size / 2,
-                pos + arrow_length_perc_of_x_axis_size * x_axis_size / 2,
+                pos - arrow_length_data_coords,
+                pos,
             ],
-            [row + arrow_height, row][slicer],
+            [row + arrow_height_data_coords, row][slicer],
             color=color,
         )
 
@@ -435,29 +562,44 @@ def _get_sorted_transcript_parts(df):
 def _add_transcript_label_position_columns(
     transcripts_sorted_by_start_and_length, ax, xmin, xmax
 ):
-    """
+    """Place transcript labels centered on transcript line if possible
 
-    Setting axis labels MUST be done before determining label sizes in next step (?)
+    If transcript labels go below xmin or above xmax, shift them inwards
+
+    Setting axis labels must be done before determining label sizes in next step
     """
 
     # Setting axis labels MUST be done before determining label sizes in next step (?)
     assert ax.get_xlim() == (xmin, xmax)
 
     t = transcripts_sorted_by_start_and_length
+
     t["label_size_data_coords"] = t.gene_name.apply(
         get_text_width_data_coordinates, ax=ax
     )
+    # transcript label will be placed at the center
+    # of the transcript line initially
     t["center"] = t["Start"] + (t["End"] - t["Start"]) / 2
+
+    # Calculate label starts and ends if placed at the center of the transcript line
     t["transcript_label_start"] = t["center"] - (t["label_size_data_coords"] / 2)
     t["transcript_label_end"] = t["center"] + (t["label_size_data_coords"] / 2)
+
+    # transcript labels which start below xmin are shifted such that they start at xmin; they will no longer be centered with respect to the transcript line
     t.loc[t["transcript_label_start"] < xmin, "transcript_label_start"] = xmin
     t.loc[t["transcript_label_start"] < xmin, "transcript_label_end"] = t.loc[
         t["transcript_label_start"] < xmin, "label_size_data_coords"
     ]
+
+    # transcript labels which end beyond xmax are shifted left such that they end at xmax
+    # not that this could in theory lead to the label start lying below xmin
     t.loc[t["transcript_label_end"] > xmax, "transcript_label_start"] = (
         xmax - t.loc[t["transcript_label_end"] > xmax, "label_size_data_coords"]
     )
     t.loc[t["transcript_label_end"] > xmax, "transcript_label_end"] = xmax
+
+    # calculate the center of the transcript label
+    # (which is not necessarily the center of the transcript line)
     t["transcript_label_center"] = (
         t["transcript_label_start"]
         + (t["transcript_label_end"] - t["transcript_label_start"]) / 2
@@ -466,6 +608,17 @@ def _add_transcript_label_position_columns(
 
 
 def _compute_transcript_row_placement(transcripts_sorted_by_start_and_length):
+    """Places transcripts in multiple rows to avoid overlaps
+
+    Transcripts are placed based on transcript_label_start and transcript_label_end, which indicate the outmost position of the transcript line or the transcript label. So both transcript label and line overlaps are avoided.
+
+    Longer transcripts are placed first, smaller gaps are filled with shorter transcripts if the next transcript in line cannot be placed.
+
+    Returns
+    -------
+    dictionary mapping transcript_ids to row ids
+        row_ids are 0.5, 1.5, etc.
+    """
 
     transcript_rows = {}
     n_transcripts = transcripts_sorted_by_start_and_length.shape[0]
@@ -500,13 +653,13 @@ def _add_transcript_transcript_parts_and_arrows(
     xlabel,
     xmin,
     xmax,
-    rectangle_height,
-    rectangle_height_utrs,
-    perc_of_axis_between_arrows,
-    arrow_length_perc_of_x_axis_size,
-    arrow_height,
+    exon_height_data_coords,
+    utr_height_data_coords,
+    dist_between_arrows_data_coords,
+    arrow_length_data_coords,
+    arrow_height_data_coords,
+    exon_text_spacer_height_data_coords,
     gene_label_size,
-    y_bottom_margin,
 ):
 
     assert ax.get_xlim() == (xmin, xmax)
@@ -520,50 +673,37 @@ def _add_transcript_transcript_parts_and_arrows(
             row=transcript_rows[transcript_id],
             ax=ax,
             color="black",
-            rectangle_height=rectangle_height,
+            exon_height_data_coord=exon_height_data_coords,
+            exon_text_spacer_height_data_coords=exon_text_spacer_height_data_coords,
             gene_label_size=gene_label_size,
         )
         if transcript_id in sorted_transcript_parts.index:
-            _plot_transcript_parts(
-                df=sorted_transcript_parts.loc[[transcript_id]],
-                transcript_ser=transcript_ser,
-                row=transcript_rows[transcript_id],
-                ax=ax,
-                x_axis_size=xmax - xmin,
-                color="black",
-                rectangle_height=rectangle_height,
-                rectangle_height_utrs=rectangle_height_utrs,
-                perc_of_axis_between_arrows=perc_of_axis_between_arrows,
-                arrow_length_perc_of_x_axis_size=arrow_length_perc_of_x_axis_size,
-                arrow_height=arrow_height,
-            )
-
-    # somehow the plotting code above resets this
-    ax.set_ylim(
-        y_bottom_margin + (rectangle_height / 2),
-        max(transcript_rows.values()) + rectangle_height / 2,
-    )
-
-    ax.set(xlabel=xlabel)
-
-    # despine
-    ax.tick_params(
-        axis="y",
-        which="both",
-        bottom=False,
-        left=False,
-        labelbottom=False,
-        labelleft=False,
-        labelsize=0,
-        length=0,
-    )
-    ax.spines["left"].set_visible(False)
+            curr_transcript_parts = sorted_transcript_parts.loc[[transcript_id]]
+        else:
+            # sorted_transcript_parts could be completely empty
+            # or undefined for the current transcript id
+            # in which case sorted_transcript_parts holds an empty dataframe
+            # without columns index
+            curr_transcript_parts = pd.DataFrame(columns=["Chromosome", "Start", "End"])
+        _plot_transcript_parts(
+            df=curr_transcript_parts,
+            transcript_ser=transcript_ser,
+            row=transcript_rows[transcript_id],
+            ax=ax,
+            x_axis_size=xmax - xmin,
+            color="black",
+            exon_height_data_coords=exon_height_data_coords,
+            rectangle_height_utrs=utr_height_data_coords,
+            dist_between_arrows_data_coords=dist_between_arrows_data_coords,
+            arrow_length_data_coords=arrow_length_data_coords,
+            arrow_height_data_coords=arrow_height_data_coords,
+        )
 
 
 def plot_genomic_region_track(
     granges_gr,
     ax,
-    patch_height_in = 0.4/2.54,
+    patch_height_in=0.4 / 2.54,
     label_padding_in=0.2 / 2.54,
     label_fontsize: Optional[float] = None,
     order_of_magnitude: Optional[int] = None,
@@ -576,7 +716,7 @@ def plot_genomic_region_track(
     title: Optional[str] = None,
     title_side: Literal["top", "right"] = "right",
     title_size: Optional[float] = None,
-    do_adjust_text : bool = False,
+    do_adjust_text: bool = False,
 ):
     """Plot a single, non-overlapping set of genomic regions onto an Axes
 
@@ -637,14 +777,14 @@ def plot_genomic_region_track(
     ax.set_xlim(xlim)
 
     # add some margin so that text does not lie directly on the x axis
-    ax.set(ylim=(- 0.05, 1))
+    ax.set(ylim=(-0.05, 1))
 
     if show_names:
         (
             max_text_width_data_coords,
             max_text_height_data_coords,
         ) = _get_max_text_height_width_in_x(
-            labels=granges_df['name'],
+            labels=granges_df["name"],
             fontsize=label_fontsize,
             ax=ax,
             x="data_coordinates",
@@ -675,33 +815,33 @@ def plot_genomic_region_track(
             curr_color = palette.get(row_ser["name"], color)
         else:
             curr_color = color
-        print('reloaded rectangle')
+        print("reloaded rectangle")
         rect = mpatches.Rectangle(
-                xy=(row_ser.Start, 1 - patch_height_data_coords),
-                width=row_ser.End - row_ser.Start,
-                height=patch_height_data_coords,
-                linewidth=0,
-                color=curr_color,
-            )
+            xy=(row_ser.Start, 1 - patch_height_data_coords),
+            width=row_ser.End - row_ser.Start,
+            height=patch_height_data_coords,
+            linewidth=0,
+            color=curr_color,
+        )
         rect.set_in_layout(False)
         rectangles.append(rect)
         if show_names:
             if row_ser["name"]:
                 # place text in middle of displayed region, not in middle of full interval, parts of which may lie outside of displayed region
-                x = (min(row_ser["End"], xlim[1])
-                    - (
-                        (min(row_ser["End"], xlim[1]) - max(row_ser["Start"], xlim[0]))
-                        / 2
-                    ))
+                x = min(row_ser["End"], xlim[1]) - (
+                    (min(row_ser["End"], xlim[1]) - max(row_ser["Start"], xlim[0])) / 2
+                )
                 xs.append(x)
-                texts.append(ax.text(
-                    x=x,
-                    y=0,
-                    s=row_ser["name"],
-                    ha="center",
-                    va="bottom",
-                    size=label_fontsize,
-                ))
+                texts.append(
+                    ax.text(
+                        x=x,
+                        y=0,
+                        s=row_ser["name"],
+                        ha="center",
+                        va="bottom",
+                        size=label_fontsize,
+                    )
+                )
 
     ax.add_collection(
         matplotlib.collections.PatchCollection(
@@ -771,3 +911,99 @@ def _get_max_text_height_width_in_x(labels, fontsize, ax, x):
     max_text_width_data_coords = max(widths)
     max_text_height_data_coords = max(heights)
     return max_text_width_data_coords, max_text_height_data_coords
+
+
+def add_label_positions_to_intervals(
+    transcripts_sorted_by_start_and_length, ax, xmin, xmax
+):
+    """Place transcript labels centered on transcript line if possible
+
+    If transcript labels go below xmin or above xmax, shift them inwards
+
+    Setting axis labels must be done before determining label sizes in next step
+    """
+
+    # Setting axis labels MUST be done before determining label sizes in next step (?)
+    assert ax.get_xlim() == (xmin, xmax)
+
+    t = transcripts_sorted_by_start_and_length
+
+    t["label_size_data_coords"] = t.gene_name.apply(
+        get_text_width_data_coordinates, ax=ax
+    )
+    # transcript label will be placed at the center
+    # of the transcript line initially
+    t["center"] = t["Start"] + (t["End"] - t["Start"]) / 2
+
+    # Calculate label starts and ends if placed at the center of the transcript line
+    t["transcript_label_start"] = t["center"] - (t["label_size_data_coords"] / 2)
+    t["transcript_label_end"] = t["center"] + (t["label_size_data_coords"] / 2)
+
+    # transcript labels which start below xmin are shifted such that they start at xmin; they will no longer be centered with respect to the transcript line
+    t.loc[t["transcript_label_start"] < xmin, "transcript_label_start"] = xmin
+    t.loc[t["transcript_label_start"] < xmin, "transcript_label_end"] = t.loc[
+        t["transcript_label_start"] < xmin, "label_size_data_coords"
+    ]
+
+    # transcript labels which end beyond xmax are shifted left such that they end at xmax
+    # not that this could in theory lead to the label start lying below xmin
+    t.loc[t["transcript_label_end"] > xmax, "transcript_label_start"] = (
+        xmax - t.loc[t["transcript_label_end"] > xmax, "label_size_data_coords"]
+    )
+    t.loc[t["transcript_label_end"] > xmax, "transcript_label_end"] = xmax
+
+    # calculate the center of the transcript label
+    # (which is not necessarily the center of the transcript line)
+    t["transcript_label_center"] = (
+        t["transcript_label_start"]
+        + (t["transcript_label_end"] - t["transcript_label_start"]) / 2
+    )
+    return t
+
+def dodge_labeled_intervals_vertically(intervals: pd.DataFrame):
+    """Dodge (optionally labeled) intervals only vertically
+
+    - mode 1: place on new line if labels overlap
+    - mode 2 (implement later): place on new line if intervals overlap; dodge overlapping labels
+
+      Longer intervals are placed first, smaller gaps are filled with shorter intervals if the next interval in length sorting order cannot be placed.
+
+      Parameters
+      ----------
+      intervals
+          meaningful index // Start interval_label_start interval_label_end length
+          Start,End: interval boundaries
+          interval_label_start, interval_label_end: interval label boundaries, may be within or outside of interval
+          length
+              interval length (not considering label bounds)
+
+      Returns
+      -------
+      dictionary mapping interval_ids to row index starting at 0
+    """
+
+    intervals_sorted = intervals.sort_values(['Start', 'length'])
+
+    rows_ser = pd.Series()
+    n_intervals_sorted = intervals_sorted.shape[0]
+    itvls_to_be_placed_in_curr_iter = intervals_sorted.index.to_list()
+    interval_to_be_placed_in_next_iter = []
+    current_row = 0
+    current_x_end = 0
+    while itvls_to_be_placed_in_curr_iter:
+        for interval_id in itvls_to_be_placed_in_curr_iter:
+            interval_ser = intervals_sorted.loc[interval_id]
+            if interval_ser[["Start", "interval_label_start"]].min() < current_x_end:
+                # start lies within already covered area of the current row
+                interval_to_be_placed_in_next_iter.append(interval_id)
+            else:
+                rows_ser[interval_id] = current_row
+                # update the area covered in the current row
+                current_x_end = interval_ser[["End", "interval_label_end"]].max()
+        itvls_to_be_placed_in_curr_iter = interval_to_be_placed_in_next_iter
+        interval_to_be_placed_in_next_iter = []
+        current_row += 1
+        current_x_end = 0
+    # flip the order, so that the longest transcript is at the highest row index
+    rows_ser = - (rows_ser - row_ser.max())
+    return rows_ser

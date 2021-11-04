@@ -50,12 +50,12 @@ def test_plot_gene_model():
         xlabel="Position (bp)",
         ax=ax,
         # xlim=(roi_start, roi_end),
-        rectangle_height=0.4,
+        rectangle_height_in=0.4,
         rectangle_height_utrs=0.2,
         perc_of_axis_between_arrows=0.03,
         arrow_length_perc_of_x_axis_size=0.01,
         arrow_height=0.1,
-        gene_label_size=6,
+        label_fontsize=6,
     )
     ut.save_and_display(fig, png_path=mhpaths.project_temp_dir + "/asfsdf.png")
 
