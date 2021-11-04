@@ -30,5 +30,7 @@ from methlevels.plot_genomic import (
     plot_gene_model,
     plot_genomic_region_track,
     plot_gene_model_get_height,
+    plot_genomic_region_track_get_height,
+    get_max_text_height_width_in_x
 )
 from methlevels.plot_methlevels import bar_plot

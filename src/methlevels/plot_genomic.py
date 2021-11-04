@@ -108,7 +108,7 @@ def plot_gene_model_get_height(
     # further yet, just also added margin at the top
     ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
 
-    max_text_width_in, max_text_height_in = _get_max_text_height_width_in_x(
+    max_text_width_in, max_text_height_in = get_max_text_height_width_in_x(
         labels=transcripts_sorted_by_start_and_length_with_label_pos[
             "gene_name"
         ].unique(),
@@ -258,7 +258,7 @@ def plot_gene_model(
     # further yet, just also added margin at the top
     ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
 
-    max_text_width_in, max_text_height_in = _get_max_text_height_width_in_x(
+    max_text_width_in, max_text_height_in = get_max_text_height_width_in_x(
         labels=transcripts_sorted_by_start_and_length_with_label_pos[
             "gene_name"
         ].unique(),
@@ -269,7 +269,7 @@ def plot_gene_model(
     (
         max_text_width_data_coords,
         max_text_height_data_coords,
-    ) = _get_max_text_height_width_in_x(
+    ) = get_max_text_height_width_in_x(
         labels=transcripts_sorted_by_start_and_length_with_label_pos[
             "gene_name"
         ].unique(),
@@ -812,13 +812,13 @@ def plot_genomic_region_track(
 
     if show_names:
 
-        _, max_text_height_in = _get_max_text_height_width_in_x(
+        _, max_text_height_in = get_max_text_height_width_in_x(
             labels=granges_df["name"],
             fontsize=label_fontsize,
             ax=ax,
             x="inch",
         )
-        _, max_text_height_data_coords = _get_max_text_height_width_in_x(
+        _, max_text_height_data_coords = get_max_text_height_width_in_x(
             labels=granges_df["name"],
             fontsize=label_fontsize,
             ax=ax,
@@ -842,6 +842,7 @@ def plot_genomic_region_track(
     # maps itvl indices (from granges df) to row indices, starting at 0
     rows_ser = compute_row_placement_for_vertical_interval_dodge(
         intervals=itvls_with_labels,
+        ax=ax,
     )
     n_rows = rows_ser.max() + 1
 
@@ -854,7 +855,7 @@ def plot_genomic_region_track(
     )
 
     # map itvl_idx -> ylow of rectangle patch
-    itvl_ylow = pd.Series(dtype='f4')
+    itvl_ylow = pd.Series(dtype="f4")
     for itvl_idx, row_idx in rows_ser.iteritems():
         itvl_ylow.loc[itvl_idx] = coutils.convert_inch_to_data_coords(
             size=(
@@ -974,16 +975,17 @@ def plot_genomic_region_track(
     #         arrowprops=dict(arrowstyle='-', color='black', lw=0.5),
     #     )
 
+
 def plot_genomic_region_track_get_height(
     granges_gr,
-        axes_width,
-        xlim,
+    axes_width,
+    xlim,
     show_names=False,
     space_between_label_and_patch_in=0.1 / 2.54,
     space_between_rows_in=0.1 / 2.54,
     patch_height_in=0.4 / 2.54,
     label_fontsize: Optional[float] = None,
-        ):
+):
 
     # height is irrelevant, we just get text height from axes transform which works independent of height
     # width is relevant because we need to vertically dodge intervals with overlapping labels
@@ -1019,7 +1021,7 @@ def plot_genomic_region_track_get_height(
 
     if show_names:
 
-        _, max_text_height_in = _get_max_text_height_width_in_x(
+        _, max_text_height_in = get_max_text_height_width_in_x(
             labels=granges_df["name"],
             fontsize=label_fontsize,
             ax=ax,
@@ -1043,6 +1045,7 @@ def plot_genomic_region_track_get_height(
     # maps itvl indices (from granges df) to row indices, starting at 0
     rows_ser = compute_row_placement_for_vertical_interval_dodge(
         intervals=itvls_with_labels,
+        ax=ax,
     )
     n_rows = rows_ser.max() + 1
 
@@ -1057,7 +1060,15 @@ def plot_genomic_region_track_get_height(
     return axes_height_in
 
 
-def _get_max_text_height_width_in_x(labels, fontsize, ax, x):
+def get_max_text_height_width_in_x(labels, fontsize, ax, x):
+    # note: mpl text alignments works as follows
+    # - bottom: align text at the bottom of the em square => g is aligned at the bottom, m or A have whitespace towards the alignment line
+    # - baseline: align text at the baseline of the em square => g will reach below the alignment line, m or A will sit on the alignment line
+    # now say you determine a text_height = 0.07 inch for a text 'mA' (note: without 'g'/'p'/etc). and then you align this text at y_bottom with va = 'bottom'; the text will not end at y_max=y_bottom + text_height! : because additional whitespace is introduced to account for the space which 'g' would additionally require at the bottom. if you rely on the text ending at y_bottom + text_height, this will lead to overlapping artists.
+    # one naive solution is to estimate the full size of the em square by getting the size of the text 'gA', this is implemented in _get_max_text_height_in_x_approx_em_square
+    print(
+        "WARNING: misuse of this function can mess up alignment, consider using _get_max_text_height_in_x_approx_em_square"
+    )
     widths, heights = list(
         zip(
             *[
@@ -1150,6 +1161,9 @@ def add_label_positions_to_intervals(
 
 def compute_row_placement_for_vertical_interval_dodge(
     intervals: pd.DataFrame,
+    ax,
+    text_min_dist_in=0.2 / 2.54,
+    patch_min_dist_in=0.1 / 2.54,
 ) -> pd.Series:
     """Dodge (optionally labeled) intervals only vertically
 
@@ -1159,6 +1173,8 @@ def compute_row_placement_for_vertical_interval_dodge(
     - mode 2 (implement later): place on new line if intervals overlap; dodge overlapping labels
 
       Longer intervals are placed first, smaller gaps are filled with shorter intervals if the next interval in length sorting order cannot be placed.
+
+    The computation of the *_min_dist_in between patches and labels requires that axes limits and figure size are fixed prior to executing this function
 
 
 
@@ -1172,39 +1188,69 @@ def compute_row_placement_for_vertical_interval_dodge(
               this can be computed with `add_label_positions_to_intervals`
           length
               interval length (not considering label bounds)
+      label_min_dist_in
+          if interval labels are less than label_min_dist_in apart, they are dodged vertically
+      patch_min_dist_in
+          if interval patches are less than patch_min_dist_in apart, they are dodged vertically
 
       Returns
       -------
       dictionary mapping interval_ids to row index starting at 0
     """
 
+    intervals_local = intervals.copy()
+
     assert not {
         "Start",
         "End",
         "interval_label_start",
         "interval_label_end",
-    }.difference(set(intervals.columns))
+    }.difference(set(intervals_local.columns))
 
-    if "length" not in intervals:
-        intervals["length"] = intervals.eval("End - Start")
+    # avoid bookended patches and labels
+    label_min_dist_data_coords = coutils.convert_inch_to_data_coords(
+        size=text_min_dist_in, ax=ax
+    )[0]
+    patch_min_dist_data_coords = coutils.convert_inch_to_data_coords(
+        size=patch_min_dist_in, ax=ax
+    )[0]
 
-    intervals_sorted = intervals.sort_values(["Start", "length"])
+    intervals_local["Start_with_pad"] = (
+        intervals_local["Start"] - patch_min_dist_data_coords / 2
+    )
+    intervals_local["End_with_pad"] = (
+        intervals_local["End"] + patch_min_dist_data_coords / 2
+    )
+    intervals_local["interval_label_start_with_pad"] = (
+        intervals_local["interval_label_start"] - label_min_dist_data_coords / 2
+    )
+    intervals_local["interval_label_end_with_pad"] = (
+        intervals_local["interval_label_end"] + label_min_dist_data_coords / 2
+    )
+
+    if "length" not in intervals_local:
+        intervals_local["length"] = intervals_local.eval("End - Start")
+        intervals_local["length_with_pad"] = intervals_local.eval(
+            "End_with_pad - Start_with_pad"
+        )
+
+    intervals_local_sorted = intervals_local.sort_values(["Start", "length"])
 
     rows_ser = pd.Series(dtype="i4")
-    itvls_to_be_placed_in_curr_iter = intervals_sorted.index.tolist()
+    itvls_to_be_placed_in_curr_iter = intervals_local_sorted.index.tolist()
     interval_to_be_placed_in_next_iter = []
     current_row = 0
     current_x_end = 0
     while itvls_to_be_placed_in_curr_iter:
         for interval_id in itvls_to_be_placed_in_curr_iter:
-            interval_ser = intervals_sorted.loc[interval_id]
-            if interval_ser[["Start", "interval_label_start"]].min() < current_x_end:  # type: ignore
+            interval_ser = intervals_local_sorted.loc[interval_id]
+            if interval_ser[["Start_with_pad", "interval_label_start_with_pad"]].min() < current_x_end:  # type: ignore
                 # start lies within already covered area of the current row
                 interval_to_be_placed_in_next_iter.append(interval_id)
             else:
                 rows_ser.loc[interval_id] = current_row
                 # update the area covered in the current row
-                current_x_end = interval_ser[["End", "interval_label_end"]].max()  # type: ignore
+                current_x_end = interval_ser[["End_with_pad", "interval_label_end_with_pad"]].max()  # type: ignore
         itvls_to_be_placed_in_curr_iter = interval_to_be_placed_in_next_iter
         interval_to_be_placed_in_next_iter = []
         current_row += 1
