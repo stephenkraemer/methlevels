@@ -18,6 +18,7 @@ from methlevels.plot_genomic import (
     plot_gene_model,
     get_text_width_data_coordinates,
     plot_genomic_region_track,
+    plot_genomic_region_track_get_height,
 )
 from methlevels.plot_methlevels import bar_plot
 
@@ -76,11 +77,16 @@ def generate_barplot_plot_df():
             ["Chromosome", "Start", "End", "subject", "beta_value"]
         ]
     )
-    plot_df.to_pickle('/home/kraemers/projects/methlevels/tests/test-data/barplot-beta-values.p')
+    plot_df.to_pickle(
+        "/home/kraemers/projects/methlevels/tests/test-data/barplot-beta-values.p"
+    )
+
 
 def test_barplot():
 
-    plot_df = pd.read_pickle('/home/kraemers/projects/methlevels/tests/test-data/barplot-beta-values.p')
+    plot_df = pd.read_pickle(
+        "/home/kraemers/projects/methlevels/tests/test-data/barplot-beta-values.p"
+    )
 
     # %%
     kwargs_to_test = dict(
@@ -94,7 +100,7 @@ def test_barplot():
             minimum_bar_width_pt=3,
             merge_overlapping_bars=False,
             barplot_lw=0.2,
-            spline_lw = 2,
+            spline_lw=2,
             show_splines=True,
         ),
         # b=dict(
@@ -159,7 +165,7 @@ def test_barplot():
         # ),
         with_multiple_region_boundary_box_and_dodged_bars=dict(
             minimum_bar_width_pt=3,
-            merge_overlapping_bars='dodge',
+            merge_overlapping_bars="dodge",
             barplot_lw=0,
             show_splines=True,
             region_properties=pd.DataFrame(
@@ -167,10 +173,11 @@ def test_barplot():
                     Chromosome=["1", "1"],
                     Start=np.unique(plot_df.Start)[[0, 3]],
                     End=np.unique(plot_df.End)[[1, -1]],
-            )),
+                )
+            ),
             region_boundaries="box",
-            region_boundaries_kws = {"color": "gray", "alpha": 0.5},
-            min_gap_width_pt = 1,
+            region_boundaries_kws={"color": "gray", "alpha": 0.5},
+            min_gap_width_pt=1,
         ),
     )
 
@@ -216,14 +223,9 @@ def test_barplot():
     # %%
 
 
-def test_plot_genomic_region_track():
+def test_plot_genomic_region_track_without_vertical_dodge():
 
     # %%
-    fig, axes = plt.subplots(
-        1, 3, constrained_layout=True, dpi=180, figsize=(cm(8), cm(3))
-    )
-    fig.set_constrained_layout_pads(hspace=0, wspace=0, h_pad=0, w_pad=0)
-
     granges_gr = pr.PyRanges(
         pd.read_csv(
             StringIO(
@@ -240,6 +242,26 @@ Chromosome Start End name
         )
     )
 
+    axes_width_in = cm(8)
+    size_relev_kwargs = dict(
+        granges_gr=granges_gr,
+        axes_width=axes_width_in,
+        xlim=(110_000_000, 110_000_000 + 410),
+        show_names=True,
+        label_fontsize=6,
+        space_between_label_and_patch_in=0.05 / 2.54,
+        space_between_rows_in=0.2 / 2.54,
+        patch_height_in=0.4 / 2.54,
+    )
+    axes_height_in = plot_genomic_region_track_get_height(
+        **size_relev_kwargs,
+    )
+
+    fig, axes = plt.subplots(
+        1, 3, dpi=180, figsize=(axes_width_in, axes_height_in)
+    )
+    fig.subplots_adjust(0, 0, 1, 1, hspace=0, wspace=0.1)
+
     # single color, no labels, no zoom, no explicit offset/order of magnitude
     plot_genomic_region_track(
         granges_gr=granges_gr,
@@ -255,9 +277,8 @@ Chromosome Start End name
         xlim=(110_000_000 + 260, 110_000_000 + 410),
         palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
         show_names=True,
-        ax_abs_height=cm(3),
+        patch_height_in=0.4 / 2.54,
         label_fontsize=6,
-        no_coords=True,
     )
 
     # palette, with labels, with zoom, with x axis, adjusted y margin, offset
@@ -267,14 +288,76 @@ Chromosome Start End name
         xlim=(110_000_000 + 260, 110_000_000 + 410),
         palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
         show_names=True,
-        ax_abs_height=cm(3),
         label_fontsize=6,
-        no_coords=False,
-        ymargin=0.1,
         offset=109_900_000,
     )
 
-    fig
+    ut.save_and_display(
+        fig,
+        png_path=mhpaths.project_temp_dir + "/test.png",
+        mpl_savefig_kwargs=dict(bbox_inches="tight", pad_inches=0),
+    )
+    # %%
+
+
+def test_plot_genomic_region_track_with_vertical_dodge():
+
+    # %%
+    granges_gr = pr.PyRanges(
+        pd.read_csv(
+            StringIO(
+                """
+Chromosome Start End name
+1 100 200 name1
+1 150 240 name2
+1 250 300 name3
+1 380 400 name4
+    """
+            ),
+            sep=" ",
+        ).assign(  # type: ignore
+            Start=lambda df: df.Start + 110_000_000, End=lambda df: df.End + 110_000_000
+        )
+    )
+
+    axes_width_in = cm(8)
+    size_relev_kwargs = dict(
+        granges_gr=granges_gr,
+        axes_width=axes_width_in,
+        xlim=(110_000_000, 110_000_000 + 410),
+        show_names=True,
+        label_fontsize=6,
+        space_between_label_and_patch_in=0.05 / 2.54,
+        space_between_rows_in=0.2 / 2.54,
+        patch_height_in=0.4 / 2.54,
+    )
+    axes_height_in = plot_genomic_region_track_get_height(
+        **size_relev_kwargs,
+    )
+
+    fig, ax = plt.subplots(
+        1, 1, dpi=180, figsize=(axes_width_in, axes_height_in)
+    )
+    fig.subplots_adjust(0, 0, 1, 1, hspace=0, wspace=0.1)
+
+    plot_genomic_region_track(
+        granges_gr=granges_gr,
+        ax=ax,
+        xlim=(110_000_000, 110_000_000 + 410),
+        palette={"name1": "red", "name2": "#ff3333", "name3": "black"},
+        show_names=True,
+        title="intervals",
+        label_fontsize=6,
+        space_between_label_and_patch_in=0.05 / 2.54,
+        space_between_rows_in=0.2 / 2.54,
+        patch_height_in=0.4 / 2.54,
+    )
+
+    ut.save_and_display(
+        fig,
+        png_path=mhpaths.project_temp_dir + "/test.png",
+        mpl_savefig_kwargs=dict(bbox_inches="tight", pad_inches=0),
+    )
     # %%
 
 

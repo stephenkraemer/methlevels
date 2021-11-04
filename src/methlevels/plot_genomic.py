@@ -266,17 +266,29 @@ def plot_gene_model(
         ax=ax,
         x="inch",
     )
+    (
+        max_text_width_data_coords,
+        max_text_height_data_coords,
+    ) = _get_max_text_height_width_in_x(
+        labels=transcripts_sorted_by_start_and_length_with_label_pos[
+            "gene_name"
+        ].unique(),
+        fontsize=label_fontsize,
+        ax=ax,
+        x="data_coordinates",
+    )
 
-    size_of_one_transcript_box_with_spacer = (
+    size_of_one_transcript_row_with_spacer = (
         max_text_height_in
         + space_between_transcript_label_and_transcript_box_in
         + exon_rect_height_in
         + space_between_transcripts_in
     )
 
+    # improve: this is not used here, a copy of this snippet is used in get_plot_gene_model_height
     axes_height_in = (
         ymargin_bottom_and_top_spacer_in
-        + size_of_one_transcript_box_with_spacer * n_rows
+        + size_of_one_transcript_row_with_spacer * n_rows
         - space_between_transcripts_in
         + ymargin_bottom_and_top_spacer_in
     )
@@ -295,7 +307,7 @@ def plot_gene_model(
         transcript_rows_2[transcript_id] = coutils.convert_inch_to_data_coords(
             size=(
                 ymargin_bottom_and_top_spacer_in
-                + size_of_one_transcript_box_with_spacer * (row_idx + 0.5)
+                + size_of_one_transcript_row_with_spacer * (row_idx + 0.5)
                 - space_between_transcripts_in
                 - exon_rect_height_in / 2
             ),
@@ -326,6 +338,7 @@ def plot_gene_model(
         xmin=xmin,
         xmax=xmax,
         exon_height_data_coords=exon_height_data_coords,
+        max_text_height_data_coords=max_text_height_data_coords,
         exon_text_spacer_height_data_coords=exon_text_spacer_height_data_coords,
         utr_height_data_coords=utr_height_data_coords,
         dist_between_arrows_data_coords=perc_of_xaxis_between_arrows,
@@ -372,21 +385,29 @@ def _plot_transcript(
     row,
     ax,
     color,
-    exon_height_data_coord,
+    exon_height_data_coords,
+    max_text_height_data_coords,
     exon_text_spacer_height_data_coords,
     gene_label_size,
 ):
 
     ax.hlines(y=row, xmin=transcript_ser.Start, xmax=transcript_ser.End, color=color)
 
+    # improve:
+    # some names may have less height than others, eg. may be completely lowercase while others are uppercase
+    # some names may have 'pg' characters, some may not
+    # currently: align everything at baseline
     ax.text(
         x=transcript_ser.loc["transcript_label_center"],
         # this puts it right in the middle - no clear association with a transcript, and may go out of bounds at the bottom row
         # y = row - rectangle_height/2 - (1 - rectangle_height) / 2,
-        y=row - exon_height_data_coord / 2 - exon_text_spacer_height_data_coords,
+        y=row
+        - exon_height_data_coords / 2
+        - exon_text_spacer_height_data_coords
+        - max_text_height_data_coords,
         s=transcript_ser.gene_name,
         ha="center",
-        va="top",
+        va="baseline",
         size=gene_label_size,
     )
 
@@ -654,6 +675,7 @@ def _add_transcript_transcript_parts_and_arrows(
     xmin,
     xmax,
     exon_height_data_coords,
+    max_text_height_data_coords,
     utr_height_data_coords,
     dist_between_arrows_data_coords,
     arrow_length_data_coords,
@@ -673,7 +695,8 @@ def _add_transcript_transcript_parts_and_arrows(
             row=transcript_rows[transcript_id],
             ax=ax,
             color="black",
-            exon_height_data_coord=exon_height_data_coords,
+            exon_height_data_coords=exon_height_data_coords,
+            max_text_height_data_coords=max_text_height_data_coords,
             exon_text_spacer_height_data_coords=exon_text_spacer_height_data_coords,
             gene_label_size=gene_label_size,
         )
@@ -703,20 +726,19 @@ def _add_transcript_transcript_parts_and_arrows(
 def plot_genomic_region_track(
     granges_gr,
     ax,
-    patch_height_in=0.4 / 2.54,
-    label_padding_in=0.2 / 2.54,
-    label_fontsize: Optional[float] = None,
     order_of_magnitude: Optional[int] = None,
     offset: Optional[Union[float, bool]] = None,
-    no_coords=False,
     xlim: Optional[Tuple[int, int]] = None,
     color: Union[str, Tuple] = "gray",
     palette: Optional[Dict[str, str]] = None,
     show_names=False,
     title: Optional[str] = None,
-    title_side: Literal["top", "right"] = "right",
     title_size: Optional[float] = None,
-    do_adjust_text: bool = False,
+    # size aesthetics
+    space_between_label_and_patch_in=0.1 / 2.54,
+    space_between_rows_in=0.1 / 2.54,
+    patch_height_in=0.4 / 2.54,
+    label_fontsize: Optional[float] = None,
 ):
     """Plot a single, non-overlapping set of genomic regions onto an Axes
 
@@ -750,25 +772,27 @@ def plot_genomic_region_track(
     label_size
         size of the region name label (for show_names = True, otherwise ignored)
         if none defaults to mpl.rcParams['xtick.labelsize']
-    label_padding_in
-        padding between rectangle and region label
     title
         axes title, added at title_side; label size is taken from mpl.rcParams["axes.titlesize"]
-    title_side
-        add as standard axes title ('top') or with ax.annotate at the side ('right')
     title_size
         fontsize for track title, if None defaults to mpl.rcParams["axes.titlesize"]
     """
 
+    # arg handling
     if label_fontsize is None:
         label_fontsize = mpl.rcParams["xtick.labelsize"]
     if not title_size:
         title_size = mpl.rcParams["axes.titlesize"]
-
     if (offset is not None) and not offset:
         offset = None
     assert not ((order_of_magnitude is not None) and (offset is not None))
+    # granges must have unique index for operations in this function
+    assert not granges_gr.df.index.duplicated().any()
 
+    # axis limits have to be set before we deal with absolute <> data coord transforms
+    # xlim can serve to zoom into a plot, or to align axis with other plots going
+    # beyond the data range
+    # if xlim is not given, we set xlim to the data range
     if xlim:
         granges_df = granges_gr[xlim[0] : xlim[1]].df
     else:
@@ -776,79 +800,153 @@ def plot_genomic_region_track(
         xlim = granges_df["Start"].min(), granges_df["End"].max()
     ax.set_xlim(xlim)
 
-    # add some margin so that text does not lie directly on the x axis
-    ax.set(ylim=(-0.05, 1))
+    # we arbitrarliy set y lim to (0, 1) and then convert absolute heights for
+    # different plot features into data coordinates within that range
+    ax.set_ylim(0, 1)
+
+    # bottom margin so that text does not align with y axis spline
+    # exon rects and arrows were slightly cut at the top in plot_gene_model;
+    # did not investigate
+    # further yet, just also added margin at the top
+    ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
 
     if show_names:
-        (
-            max_text_width_data_coords,
-            max_text_height_data_coords,
-        ) = _get_max_text_height_width_in_x(
+
+        _, max_text_height_in = _get_max_text_height_width_in_x(
+            labels=granges_df["name"],
+            fontsize=label_fontsize,
+            ax=ax,
+            x="inch",
+        )
+        _, max_text_height_data_coords = _get_max_text_height_width_in_x(
             labels=granges_df["name"],
             fontsize=label_fontsize,
             ax=ax,
             x="data_coordinates",
         )
 
-        _, patch_height_data_coords = coutils.convert_inch_to_data_coords(
-            size=patch_height_in, ax=ax
+        size_of_one_track_row_with_spacer_in = (
+            max_text_height_in
+            + space_between_label_and_patch_in
+            + patch_height_in
+            + space_between_rows_in
         )
-        # ax_fraction_for_rectangles = (
-        #     1 - (label_height_in + label_padding_in) / ax_abs_height
-        # )
-        # ax_text_top_va_y = 0 + (label_height_in / ax_abs_height)
-    else:
-        patch_height_data_coords = 1
 
-    if no_coords:
-        coutils.strip_all_axis2(ax)
     else:
-        ax.yaxis.set_visible(False)
-        ax.spines["left"].set_visible(False)
+        size_of_one_track_row_with_spacer_in = patch_height_in + space_between_rows_in
 
+    itvls_with_labels = add_label_positions_to_intervals(
+        itvls=granges_df, ax=ax, xlim=xlim, fontsize=label_fontsize
+    )
+
+    # maps itvl indices (from granges df) to row indices, starting at 0
+    rows_ser = compute_row_placement_for_vertical_interval_dodge(
+        intervals=itvls_with_labels,
+    )
+    n_rows = rows_ser.max() + 1
+
+    # not used here, but kept here because the get_height function is copy-pasted from here atm
+    axes_height_in = (
+        ymargin_bottom_and_top_spacer_in
+        + size_of_one_track_row_with_spacer_in * n_rows
+        - space_between_rows_in
+        + ymargin_bottom_and_top_spacer_in
+    )
+
+    # map itvl_idx -> ylow of rectangle patch
+    itvl_ylow = pd.Series(dtype='f4')
+    for itvl_idx, row_idx in rows_ser.iteritems():
+        itvl_ylow.loc[itvl_idx] = coutils.convert_inch_to_data_coords(
+            size=(
+                ymargin_bottom_and_top_spacer_in
+                + size_of_one_track_row_with_spacer_in * (row_idx + 1)
+                - space_between_rows_in
+                - patch_height_in
+            ),
+            ax=ax,
+        )[1]
+    assert itvl_ylow.lt(1).all()
+
+    patch_height_data_coords = coutils.convert_inch_to_data_coords(
+        size=patch_height_in, ax=ax
+    )[1]
+    label_patch_spacer_height_data_coords = coutils.convert_inch_to_data_coords(
+        size=space_between_label_and_patch_in, ax=ax
+    )[1]
+
+    # %%
     rectangles = []
     texts = []
     xs = []
     ys = []
-    for _unused, row_ser in granges_df.iterrows():  # type: ignore
+    for itvl_idx, row_ser in granges_df.iterrows():  # type: ignore
+
         if palette:
             curr_color = palette.get(row_ser["name"], color)
         else:
             curr_color = color
-        print("reloaded rectangle")
+
         rect = mpatches.Rectangle(
-            xy=(row_ser.Start, 1 - patch_height_data_coords),
+            xy=(row_ser.Start, itvl_ylow.loc[itvl_idx]),
             width=row_ser.End - row_ser.Start,
             height=patch_height_data_coords,
             linewidth=0,
             color=curr_color,
         )
-        rect.set_in_layout(False)
         rectangles.append(rect)
+
         if show_names:
+            # name is not required for all intervals
             if row_ser["name"]:
-                # place text in middle of displayed region, not in middle of full interval, parts of which may lie outside of displayed region
+                # place text in middle of displayed region,
+                # not in middle of full interval,
+                # parts of which may lie outside of displayed region
                 x = min(row_ser["End"], xlim[1]) - (
                     (min(row_ser["End"], xlim[1]) - max(row_ser["Start"], xlim[0])) / 2
                 )
-                xs.append(x)
-                texts.append(
-                    ax.text(
-                        x=x,
-                        y=0,
-                        s=row_ser["name"],
-                        ha="center",
-                        va="bottom",
-                        size=label_fontsize,
-                    )
+                # improve:
+                # some names may have less height than others, eg. may be completely lowercase while others are uppercase
+                # some names may have 'pg' characters, some may not
+                # currently: align everything at baseline
+                ax.text(
+                    x=x,
+                    y=itvl_ylow[itvl_idx]
+                    - label_patch_spacer_height_data_coords
+                    - max_text_height_data_coords,
+                    s=row_ser["name"],
+                    ha="center",
+                    va="baseline",
+                    size=label_fontsize,
                 )
 
+    # jj snippets
     ax.add_collection(
         matplotlib.collections.PatchCollection(
             rectangles, match_original=True, zorder=3
         ),
     )
+    # %%
 
+    # axis handling
+    ax.yaxis.set_visible(False)
+    ax.spines["left"].set_visible(False)
+
+    _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)
+
+    if title:
+        ax.annotate(
+            title,
+            xy=(1.02, itvl_ylow.max() + patch_height_data_coords),
+            xycoords="axes fraction",
+            rotation=0,
+            ha="left",
+            va="top",
+            size=title_size,
+        )
+
+    # old / scratch
+    # =============
+    #
     # jj snippets
     # if do_adjust_text:
     #     print('adjusting text')
@@ -876,22 +974,87 @@ def plot_genomic_region_track(
     #         arrowprops=dict(arrowstyle='-', color='black', lw=0.5),
     #     )
 
-    _format_axis_with_offset_or_order_of_magnitude(ax, offset, order_of_magnitude)
+def plot_genomic_region_track_get_height(
+    granges_gr,
+        axes_width,
+        xlim,
+    show_names=False,
+    space_between_label_and_patch_in=0.1 / 2.54,
+    space_between_rows_in=0.1 / 2.54,
+    patch_height_in=0.4 / 2.54,
+    label_fontsize: Optional[float] = None,
+        ):
 
-    if title:
-        if title_side == "top":
-            ax.set_title(title)
-        elif title_side == "right":
-            # add to the right
-            ax.annotate(
-                title,
-                xy=(1.02, 1),
-                xycoords="axes fraction",
-                rotation=0,
-                ha="left",
-                va="top",
-                size=title_size,
-            )
+    # height is irrelevant, we just get text height from axes transform which works independent of height
+    # width is relevant because we need to vertically dodge intervals with overlapping labels
+    fig, ax = plt.subplots(1, 1, figsize=(axes_width, 2), dpi=180)
+    fig.subplots_adjust(0, 0, 1, 1, 0, 0)
+
+    # arg handling
+    if label_fontsize is None:
+        label_fontsize = mpl.rcParams["xtick.labelsize"]
+    # granges must have unique index for operations in this function
+    assert not granges_gr.df.index.duplicated().any()
+
+    # axis limits have to be set before we deal with absolute <> data coord transforms
+    # xlim can serve to zoom into a plot, or to align axis with other plots going
+    # beyond the data range
+    # if xlim is not given, we set xlim to the data range
+    if xlim:
+        granges_df = granges_gr[xlim[0] : xlim[1]].df
+    else:
+        granges_df = granges_gr.df
+        xlim = granges_df["Start"].min(), granges_df["End"].max()
+    ax.set_xlim(xlim)
+
+    # we arbitrarliy set y lim to (0, 1) and then convert absolute heights for
+    # different plot features into data coordinates within that range
+    ax.set_ylim(0, 1)
+
+    # bottom margin so that text does not align with y axis spline
+    # exon rects and arrows were slightly cut at the top in plot_gene_model;
+    # did not investigate
+    # further yet, just also added margin at the top
+    ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
+
+    if show_names:
+
+        _, max_text_height_in = _get_max_text_height_width_in_x(
+            labels=granges_df["name"],
+            fontsize=label_fontsize,
+            ax=ax,
+            x="inch",
+        )
+
+        size_of_one_track_row_with_spacer_in = (
+            max_text_height_in
+            + space_between_label_and_patch_in
+            + patch_height_in
+            + space_between_rows_in
+        )
+
+    else:
+        size_of_one_track_row_with_spacer_in = patch_height_in + space_between_rows_in
+
+    itvls_with_labels = add_label_positions_to_intervals(
+        itvls=granges_df, ax=ax, xlim=xlim, fontsize=label_fontsize
+    )
+
+    # maps itvl indices (from granges df) to row indices, starting at 0
+    rows_ser = compute_row_placement_for_vertical_interval_dodge(
+        intervals=itvls_with_labels,
+    )
+    n_rows = rows_ser.max() + 1
+
+    # not used here, but kept here because the get_height function is copy-pasted from here atm
+    axes_height_in = (
+        ymargin_bottom_and_top_spacer_in
+        + size_of_one_track_row_with_spacer_in * n_rows
+        - space_between_rows_in
+        + ymargin_bottom_and_top_spacer_in
+    )
+
+    return axes_height_in
 
 
 def _get_max_text_height_width_in_x(labels, fontsize, ax, x):
@@ -900,7 +1063,7 @@ def _get_max_text_height_width_in_x(labels, fontsize, ax, x):
             *[
                 coutils.get_text_width_height_in_x(
                     s=s,
-                    size=fontsize,
+                    fontsize=fontsize,
                     ax=ax,
                     x=x,
                 )
@@ -914,66 +1077,99 @@ def _get_max_text_height_width_in_x(labels, fontsize, ax, x):
 
 
 def add_label_positions_to_intervals(
-    transcripts_sorted_by_start_and_length, ax, xmin, xmax
-):
-    """Place transcript labels centered on transcript line if possible
+    itvls: pd.DataFrame, ax, xlim, fontsize
+) -> pd.DataFrame:
+    """
 
-    If transcript labels go below xmin or above xmax, shift them inwards
+    Parameters
+    ----------
+    itvls
+        Start, End
+        name
 
-    Setting axis labels must be done before determining label sizes in next step
+    Returns
+    -------
+    Dataframe with label boundaries
+        Start, End, center
+            interval bounds
+        interval_label_start, interval_label_end, interval_label_center
+            interval label bounds, maybe inside or outside of interval bounds
+        **other cols
     """
 
     # Setting axis labels MUST be done before determining label sizes in next step (?)
-    assert ax.get_xlim() == (xmin, xmax)
+    assert ax.get_xlim() == xlim
+    xmin, xmax = xlim
 
-    t = transcripts_sorted_by_start_and_length
-
-    t["label_size_data_coords"] = t.gene_name.apply(
-        get_text_width_data_coordinates, ax=ax
+    itvls["label_size_data_coords"] = itvls["name"].apply(
+        lambda x: coutils.get_text_width_height_in_x(
+            s=x,
+            fontsize=fontsize,
+            ax=ax,
+            x="data_coordinates",
+        )[0]
     )
-    # transcript label will be placed at the center
-    # of the transcript line initially
-    t["center"] = t["Start"] + (t["End"] - t["Start"]) / 2
+    # interval label will be placed at the center
+    # of the interval line initially
+    itvls["center"] = itvls["Start"] + (itvls["End"] - itvls["Start"]) / 2
 
-    # Calculate label starts and ends if placed at the center of the transcript line
-    t["transcript_label_start"] = t["center"] - (t["label_size_data_coords"] / 2)
-    t["transcript_label_end"] = t["center"] + (t["label_size_data_coords"] / 2)
+    # Calculate label starts and ends if placed at the center of the interval line
+    itvls["interval_label_start"] = itvls["center"] - (  # type: ignore
+        itvls["label_size_data_coords"] / 2
+    )
+    itvls["interval_label_end"] = itvls["center"] + (  # type: ignore
+        itvls["label_size_data_coords"] / 2
+    )
 
-    # transcript labels which start below xmin are shifted such that they start at xmin; they will no longer be centered with respect to the transcript line
-    t.loc[t["transcript_label_start"] < xmin, "transcript_label_start"] = xmin
-    t.loc[t["transcript_label_start"] < xmin, "transcript_label_end"] = t.loc[
-        t["transcript_label_start"] < xmin, "label_size_data_coords"
-    ]
+    # interval labels which start below xmin are shifted such that they start at xmin; they will no longer be centered with respect to the interval line
+    itvl_label_below_xmin = itvls["interval_label_start"] < xmin
+    # make labels start at xmin
+    itvls.loc[itvl_label_below_xmin, "interval_label_start"] = xmin
+    # make labels end at xmin + label_size_data_coords
+    itvls.loc[itvl_label_below_xmin, "interval_label_end"] = (
+        xmin + itvls.loc[itvl_label_below_xmin, "label_size_data_coords"]
+    )
 
-    # transcript labels which end beyond xmax are shifted left such that they end at xmax
+    # interval labels which end beyond xmax are shifted left such that they end at xmax
     # not that this could in theory lead to the label start lying below xmin
-    t.loc[t["transcript_label_end"] > xmax, "transcript_label_start"] = (
-        xmax - t.loc[t["transcript_label_end"] > xmax, "label_size_data_coords"]
+    itvl_label_above_xmax = itvls["interval_label_end"] > xmax
+    itvls.loc[itvl_label_above_xmax, "interval_label_start"] = (
+        xmax - itvls.loc[itvl_label_above_xmax, "label_size_data_coords"]
     )
-    t.loc[t["transcript_label_end"] > xmax, "transcript_label_end"] = xmax
+    itvls.loc[itvl_label_above_xmax, "interval_label_end"] = xmax
 
-    # calculate the center of the transcript label
-    # (which is not necessarily the center of the transcript line)
-    t["transcript_label_center"] = (
-        t["transcript_label_start"]
-        + (t["transcript_label_end"] - t["transcript_label_start"]) / 2
+    # calculate the center of the interval label
+    # (which is not necessarily the center of the interval line)
+    itvls["interval_label_center"] = (
+        itvls["interval_label_start"]
+        + (itvls["interval_label_end"] - itvls["interval_label_start"]) / 2
     )
-    return t
 
-def dodge_labeled_intervals_vertically(intervals: pd.DataFrame):
+    return itvls
+
+
+def compute_row_placement_for_vertical_interval_dodge(
+    intervals: pd.DataFrame,
+) -> pd.Series:
     """Dodge (optionally labeled) intervals only vertically
+
+    Run `add_label_positions_to_intervals` prior to calling this function
 
     - mode 1: place on new line if labels overlap
     - mode 2 (implement later): place on new line if intervals overlap; dodge overlapping labels
 
       Longer intervals are placed first, smaller gaps are filled with shorter intervals if the next interval in length sorting order cannot be placed.
 
+
+
       Parameters
       ----------
       intervals
           meaningful index // Start interval_label_start interval_label_end length
           Start,End: interval boundaries
-          interval_label_start, interval_label_end: interval label boundaries, may be within or outside of interval
+          interval_label_start, interval_label_end
+              interval label boundaries, may be within or outside of interval
+              this can be computed with `add_label_positions_to_intervals`
           length
               interval length (not considering label bounds)
 
@@ -982,28 +1178,38 @@ def dodge_labeled_intervals_vertically(intervals: pd.DataFrame):
       dictionary mapping interval_ids to row index starting at 0
     """
 
-    intervals_sorted = intervals.sort_values(['Start', 'length'])
+    assert not {
+        "Start",
+        "End",
+        "interval_label_start",
+        "interval_label_end",
+    }.difference(set(intervals.columns))
 
-    rows_ser = pd.Series()
-    n_intervals_sorted = intervals_sorted.shape[0]
-    itvls_to_be_placed_in_curr_iter = intervals_sorted.index.to_list()
+    if "length" not in intervals:
+        intervals["length"] = intervals.eval("End - Start")
+
+    intervals_sorted = intervals.sort_values(["Start", "length"])
+
+    rows_ser = pd.Series(dtype="i4")
+    itvls_to_be_placed_in_curr_iter = intervals_sorted.index.tolist()
     interval_to_be_placed_in_next_iter = []
     current_row = 0
     current_x_end = 0
     while itvls_to_be_placed_in_curr_iter:
         for interval_id in itvls_to_be_placed_in_curr_iter:
             interval_ser = intervals_sorted.loc[interval_id]
-            if interval_ser[["Start", "interval_label_start"]].min() < current_x_end:
+            if interval_ser[["Start", "interval_label_start"]].min() < current_x_end:  # type: ignore
                 # start lies within already covered area of the current row
                 interval_to_be_placed_in_next_iter.append(interval_id)
             else:
-                rows_ser[interval_id] = current_row
+                rows_ser.loc[interval_id] = current_row
                 # update the area covered in the current row
-                current_x_end = interval_ser[["End", "interval_label_end"]].max()
+                current_x_end = interval_ser[["End", "interval_label_end"]].max()  # type: ignore
         itvls_to_be_placed_in_curr_iter = interval_to_be_placed_in_next_iter
         interval_to_be_placed_in_next_iter = []
         current_row += 1
         current_x_end = 0
+
     # flip the order, so that the longest transcript is at the highest row index
-    rows_ser = - (rows_ser - row_ser.max())
+    rows_ser = -(rows_ser - rows_ser.max())
     return rows_ser
