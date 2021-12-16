@@ -1,68 +1,105 @@
+# # Imports
+
 from typing import Dict, Iterable, Union, List, Tuple
+from pathlib import Path
+import signal
+from collections import Counter
+from attr import attrs
+import multiprocessing
 
 import pandas as pd
 from joblib import Parallel, delayed
 
+# # Global vars
+
 gr_cols = ["Chromosome", "Start", "End"]
 
+# # Extract and concat mcalls from per-sample mcall files
 
-def extract_and_concat_mcalls(
-    mcall_df_fps: Union[List[str], pd.Series],
-    sample_names: Union[List[str], pd.Series],
-    cpg_gr_df: pd.DataFrame,
-    n_cores: int = 1,
-) -> Dict[str, pd.DataFrame]:
-    """Retrieve calls for a set of CpGs from individual mcall results
+# ## Main class
 
-    Missing calls are filled with np.nan, which usually leads to casting n_meth and n_total
-    to float.
-    The row order and index of cpg_gr_df is maintained
 
-    Parameters
-    ----------
-    mcall_df_fps
-        paths to pickled meth calls.
-        Calls are assumed to be coverage filtered, dense dataframes.
-        Calls reindexed to all genomic positions will also work,
-        but this function is not the most efficient way to treat such calls.
-        Mcalls must have columns: n_meth, n_total
-    sample_names
-        names, order matched to fps, will be used as columns index
-    cpg_gr_df
-        must have columns Chromosome, Start, End and consecutive, sorted index
-    n_cores
-        if > 1, will be parallelized
-
-    Returns
-    -------
-    dict of dataframes for keys 'is_covered' and 'beta value'
+class McallsFromPerSampleFiles:
     """
 
-    # avoid alignment issues (just as a precaution)
-    if isinstance(sample_names, pd.Series):
-        sample_names = sample_names.to_list()
-    if isinstance(mcall_df_fps, pd.Series):
-        mcall_df_fps = mcall_df_fps.to_list()
+    To terminate, join, close use self.pool.terminate()|.join()|.close()
+    """
 
-    # 0: n_meth, 1: n_total
-    # with default backend, there was a UserWarning "memory leak or timeout too short"
-    # I haven't investigated it yet, the situation does not arise by setting backend to multiprocessing
-    reindexed_sers = list(
-        zip(
-            *Parallel(n_cores, backend="multiprocessing")(
-                delayed(_reindex_meth_calls_to_query_df)(p, cpg_gr_df)
-                for p in mcall_df_fps
+    def __init__(
+        self,
+        mcall_df_fps: List[Union[str, Path]],
+        sample_names: List[str],
+        cpg_gr_df: pd.DataFrame,
+        n_cores: int,
+    ):
+
+        self.mcall_df_fps = mcall_df_fps
+        self.sample_names = sample_names
+        self.cpg_gr_df = cpg_gr_df
+        self.n_cores = n_cores
+        self._result = None
+
+    def start(self):
+        self.pool = multiprocessing.Pool(self.n_cores, initializer=init_worker)
+        self.async_res_l = [
+            self.pool.apply_async(
+                _reindex_meth_calls_to_query_df,
+                kwds=dict(
+                    mcall_df_p=fp,
+                    cpg_gr_df=self.cpg_gr_df,
+                ),
             )
-        )
-    )
-    res = {
-        "n_meth": pd.concat(reindexed_sers[0], keys=sample_names, axis=1),
-        "n_total": pd.concat(reindexed_sers[1], keys=sample_names, axis=1),
-    }
-    res["beta_value"] = res["n_meth"] / res["n_total"]
+            for fp in self.mcall_df_fps
+        ]
 
-    return res
+    def display_status_counts(self):
+        counter = Counter()
+        is_pend = False
+        for job in self.async_res_l:
+            if not job.ready():
+                if is_pend:
+                    counter["pend"] += 1
+                else:
+                    counter["run"] += 1
+            else:
+                is_pend = False
+                if job.successful():
+                    counter["done"] += 1
+                else:
+                    counter["error"] += 1
+        print(counter)
 
+    def get(self, raise_on_error=True, keep_individual_results=False):
+        if self._result is None:
+            individ_res_l = []
+            for async_res in self.async_res_l:
+                try:
+                    individ_res_l.append(async_res.get())
+                except Exception as e:
+                    if raise_on_error:
+                        raise (e)
+                    else:
+                        individ_res_l.append(str(e))
+
+            if keep_individual_results:
+                self.individual_res_l = individ_res_l
+
+            reindexed_sers = list(zip(*individ_res_l))
+            concat_res_d = {
+                "n_meth": pd.concat(reindexed_sers[0], keys=self.sample_names, axis=1),
+                "n_total": pd.concat(reindexed_sers[1], keys=self.sample_names, axis=1),
+            }
+            concat_res_d["beta_value"] = (
+                concat_res_d["n_meth"] / concat_res_d["n_total"]
+            ) * 100
+            self._result = concat_res_d
+
+        return self._result
+
+
+# ## Helpers
+
+# ### Extract calls from individual file
 
 # for multiprocessing backend of joblib, this function needs to be top-level
 def _reindex_meth_calls_to_query_df(
@@ -105,10 +142,18 @@ def _reindex_meth_calls_to_query_df(
     pd.testing.assert_frame_equal(
         reindexed_df[gr_cols].reset_index(drop=True),
         cpg_gr_df[gr_cols].reset_index(drop=True),
-        check_names=False,
+        check_names=False,  # type: ignore
     )
 
     # then we can safely reassign the original index
     reindexed_df.index = cpg_gr_df.index
 
     return reindexed_df["n_meth"], reindexed_df["n_total"]
+
+
+# ### Utils
+
+
+def init_worker():
+    # Don't interrupt child processes on SIGINT
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
