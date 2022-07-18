@@ -1,6 +1,7 @@
 import re
 from io import StringIO
 from textwrap import dedent
+import codaplot.utils as coutils
 
 import pandas as pd
 from pandas.api.types import CategoricalDtype
@@ -119,3 +120,11 @@ def has_duplicated_coord(self):
     else:
         raise ValueError('Missing Chromosome or Start information')
 
+
+def get_max_text_height_in_x_approx_em_square(fontsize, ax, x):
+    return coutils.get_text_width_height_in_x(
+        s='gA',
+        fontsize=fontsize,
+        ax=ax,
+        x=x,
+    )[1]

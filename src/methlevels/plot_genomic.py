@@ -3,6 +3,8 @@ import codaplot.utils as coutils
 from adjustText import adjust_text
 
 import matplotlib.text as mpltext
+import matplotlib.patches as mpatches
+import matplotlib.transforms as mtransforms
 import matplotlib as mpl
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
@@ -22,6 +24,7 @@ import pyranges as pr
 
 from methlevels import MethStats
 from methlevels.utils import NamedColumnsSlice as ncls
+from methlevels.utils import get_max_text_height_in_x_approx_em_square
 
 
 import matplotlib.patches as mpatches
@@ -108,10 +111,7 @@ def plot_gene_model_get_height(
     # further yet, just also added margin at the top
     ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
 
-    max_text_width_in, max_text_height_in = get_max_text_height_width_in_x(
-        labels=transcripts_sorted_by_start_and_length_with_label_pos[
-            "gene_name"
-        ].unique(),
+    max_text_height_in = get_max_text_height_in_x_approx_em_square(
         fontsize=label_fontsize,
         ax=ax,
         x="inch",
@@ -258,21 +258,12 @@ def plot_gene_model(
     # further yet, just also added margin at the top
     ymargin_bottom_and_top_spacer_in = 0.1 / 2.54
 
-    max_text_width_in, max_text_height_in = get_max_text_height_width_in_x(
-        labels=transcripts_sorted_by_start_and_length_with_label_pos[
-            "gene_name"
-        ].unique(),
+    max_text_height_in = get_max_text_height_in_x_approx_em_square(
         fontsize=label_fontsize,
         ax=ax,
         x="inch",
     )
-    (
-        max_text_width_data_coords,
-        max_text_height_data_coords,
-    ) = get_max_text_height_width_in_x(
-        labels=transcripts_sorted_by_start_and_length_with_label_pos[
-            "gene_name"
-        ].unique(),
+    max_text_height_data_coords = get_max_text_height_in_x_approx_em_square(
         fontsize=label_fontsize,
         ax=ax,
         x="data_coordinates",
@@ -812,14 +803,12 @@ def plot_genomic_region_track(
 
     if show_names:
 
-        _, max_text_height_in = get_max_text_height_width_in_x(
-            labels=granges_df["name"],
+        max_text_height_in = get_max_text_height_in_x_approx_em_square(
             fontsize=label_fontsize,
             ax=ax,
             x="inch",
         )
-        _, max_text_height_data_coords = get_max_text_height_width_in_x(
-            labels=granges_df["name"],
+        max_text_height_data_coords = get_max_text_height_in_x_approx_em_square(
             fontsize=label_fontsize,
             ax=ax,
             x="data_coordinates",
@@ -1021,8 +1010,7 @@ def plot_genomic_region_track_get_height(
 
     if show_names:
 
-        _, max_text_height_in = get_max_text_height_width_in_x(
-            labels=granges_df["name"],
+        max_text_height_in = get_max_text_height_in_x_approx_em_square(
             fontsize=label_fontsize,
             ax=ax,
             x="inch",
@@ -1057,18 +1045,46 @@ def plot_genomic_region_track_get_height(
         + ymargin_bottom_and_top_spacer_in
     )
 
+    plt.close()
+
     return axes_height_in
 
 
+def get_max_text_width_in_x(labels, fontsize, ax, x):
+    widths, _ = list(
+        zip(
+            *[
+                coutils.get_text_width_height_in_x(
+                    s=s,
+                    fontsize=fontsize,
+                    ax=ax,
+                    x=x,
+                )
+                for s in labels
+            ]
+        )
+    )
+    max_text_width_data_coords = max(widths)
+    return max_text_width_data_coords
+
+
 def get_max_text_height_width_in_x(labels, fontsize, ax, x):
-    # note: mpl text alignments works as follows
+
+    # NOTE: mpl text alignments works as follows
     # - bottom: align text at the bottom of the em square => g is aligned at the bottom, m or A have whitespace towards the alignment line
     # - baseline: align text at the baseline of the em square => g will reach below the alignment line, m or A will sit on the alignment line
     # now say you determine a text_height = 0.07 inch for a text 'mA' (note: without 'g'/'p'/etc). and then you align this text at y_bottom with va = 'bottom'; the text will not end at y_max=y_bottom + text_height! : because additional whitespace is introduced to account for the space which 'g' would additionally require at the bottom. if you rely on the text ending at y_bottom + text_height, this will lead to overlapping artists.
     # one naive solution is to estimate the full size of the em square by getting the size of the text 'gA', this is implemented in _get_max_text_height_in_x_approx_em_square
+
+    # I am not sure if the problem is also true when using data coordiantes and not inch - the question is whether the full em box is respected when getting size in data coordinates?
+    # to be safer, one could just use the em based function...
+    # NOTE: the height is likely better computed using the em square, but the looping over labels to get the max width may still be useful
+
     print(
-        "WARNING: misuse of this function can mess up alignment, consider using _get_max_text_height_in_x_approx_em_square"
+        "WARNING: misuse of this function can mess up alignment, consider using _get_max_text_height_in_x_approx_em_square",
+        "NOTE: the height is likely better computed using the em square, but the looping over labels to get the max width may still be useful",
     )
+
     widths, heights = list(
         zip(
             *[
@@ -1084,6 +1100,7 @@ def get_max_text_height_width_in_x(labels, fontsize, ax, x):
     )
     max_text_width_data_coords = max(widths)
     max_text_height_data_coords = max(heights)
+
     return max_text_width_data_coords, max_text_height_data_coords
 
 
@@ -1259,3 +1276,141 @@ def compute_row_placement_for_vertical_interval_dodge(
     # flip the order, so that the longest transcript is at the highest row index
     rows_ser = -(rows_ser - rows_ser.max())
     return rows_ser
+
+
+def get_single_row_genomic_track_height(
+    fontsize,
+    patch_height_in,
+    patch_label_spacer_height_in,
+    show_label=True,
+):
+    """
+
+    Parameters
+    ----------
+    case
+        if upper, use height of 'pA', if lower, use height of 'p'
+    labels
+        if not None, use max height across all labels as text line height
+        supersedes case
+
+    """
+
+    if show_label:
+        fig, ax = plt.subplots(1, 1, dpi=180, figsize=(3, 3))
+        max_text_height_in = get_max_text_height_in_x_approx_em_square(
+            fontsize=fontsize,
+            ax=ax,
+            x="inch",
+        )
+        plt.close()
+        axes_height = (
+            max_text_height_in + patch_height_in + patch_label_spacer_height_in
+        )
+    else:
+        axes_height = patch_height_in
+
+    return axes_height
+
+
+def add_interval_patches_across_axes(
+    lower_ax, upper_ax, itvls, facecolors=None, **kwds
+):
+    """
+
+    Parameters
+    ----------
+    itvls
+        [(x_left, x_right), (x_left2, xright_2), ...]
+    facecolors
+        list of colors
+    **kwds
+        passed to mpatches.Rectangle
+        do not pass zorder, clip_on
+        if colors is not None, do not pass facecolor
+    """
+
+    # %%
+    """
+    # for testing
+    kwds = dict(
+        alpha=0.1,
+        linewidth=0,
+    )
+
+    itvls = [(1, 1.2), (2.1, 3.5)]
+    facecolors = ["red", "blue"]
+
+    fig, axes = plt.subplots(
+        3, 1, constrained_layout=True, dpi=180, figsize=(cm(6), cm(6))
+    )
+    fig.set_constrained_layout_pads(hspace=0, wspace=0, h_pad=0, w_pad=0)
+
+    for ax in axes:
+        ax.plot([1, 2, 3], [1, 2, 3])
+
+    lower_ax = axes[-1]
+    upper_ax = axes[0]
+    """
+
+    # to avoid problems with indexing into series with numeric indexes
+    assert isinstance(facecolors, list)
+
+    # draw the figure to apply constrained layout
+    # BEFORE we work with figure coordinates in the following
+    fig = lower_ax.figure
+    fig.canvas.draw()
+
+    # get the figure coordinates for the lower_ax.transAxes == (0,0) point
+    # and for the upper_ax.transAxes == (1, 1) point
+    # to be used in the rectangle origin tuple and for the rectangle height
+    # we are only interested in y, x will be specified through lower_ax.transData
+    # cannot use figure coords = 1 for upper rectangle end because upper ax or figure
+    # may have a title
+    _, fig_y_for_lower_rectangle_end = fig.transFigure.inverted().transform(
+        lower_ax.transAxes.transform((0, 0))
+    )
+    _, fig_y_for_upper_rectangle_end = fig.transFigure.inverted().transform(
+        upper_ax.transAxes.transform((1, 1))
+    )
+
+    # specify rectangle origin x and width in lower_ax.transData
+    # rectangle origin y and height in figure coords
+    blended_transform = mtransforms.blended_transform_factory(
+        lower_ax.transData, fig.transFigure
+    )
+
+    for i, (x_left, x_right) in enumerate(itvls):
+
+        if facecolors is not None:
+            facecolor = facecolors[i]
+            kwds["facecolor"] = facecolor
+
+        patch = mpatches.Rectangle(
+            xy=(x_left, fig_y_for_lower_rectangle_end),
+            width=x_right - x_left,
+            height=fig_y_for_upper_rectangle_end - fig_y_for_lower_rectangle_end,
+            transform=blended_transform,
+            zorder=100,
+            **kwds,
+        )
+        patch.set_in_layout(False)
+        fig.add_artist(patch)
+        patch.set_clip_on(True)
+        blended_clipbox_transform = mtransforms.blended_transform_factory(
+            lower_ax.transAxes, fig.transFigure)
+        clip_box = mtransforms.TransformedBbox(
+            mtransforms.Bbox(
+                [[0, fig_y_for_lower_rectangle_end], [1, fig_y_for_upper_rectangle_end]]
+            ),
+            # mtransforms.Bbox(
+            #     [[0, 0], [3, 1]]
+            # ),
+            transform=blended_clipbox_transform,
+        )
+        patch.set_clip_box(clip_box)
+    # %%
+
+    # test clipon
+    # if added to lower ax, it will clip both x and y to lower ax
+    # if added to fig, it apparently clips to fig, which may have no or practically no effect
