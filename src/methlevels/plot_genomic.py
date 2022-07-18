@@ -730,7 +730,7 @@ def plot_genomic_region_track(
     space_between_rows_in=0.1 / 2.54,
     patch_height_in=0.4 / 2.54,
     label_fontsize: Optional[float] = None,
-        bar_width_data_coord: Optional[float] = None,
+    bar_width_data_coord: Optional[float] = None,
 ):
     """Plot a single, non-overlapping set of genomic regions onto an Axes
 
@@ -829,7 +829,10 @@ def plot_genomic_region_track(
         size_of_one_track_row_with_spacer_in = patch_height_in + space_between_rows_in
 
     if bar_width_data_coord is not None:
-        granges_df = granges_df.assign(Start = lambda df: df.Start.subtract(bar_width_data_coord / 2), End = lambda df: df.End.add(bar_width_data_coord / 2))
+        granges_df = granges_df.assign(
+            Start=lambda df: df.Start.subtract(bar_width_data_coord / 2),
+            End=lambda df: df.End.add(bar_width_data_coord / 2),
+        )
 
     itvls_with_labels = add_label_positions_to_intervals(
         itvls=granges_df, ax=ax, xlim=xlim, fontsize=label_fontsize
@@ -1321,7 +1324,12 @@ def get_single_row_genomic_track_height(
 
 
 def add_interval_patches_across_axes(
-        lower_ax, upper_ax, itvls, facecolors=None, bar_width_data_coords: Optional[float] = None, **kwds
+    lower_ax,
+    upper_ax,
+    itvls,
+    facecolors=None,
+    bar_width_data_coords: Optional[float] = None,
+    **kwds
 ):
     """
 
@@ -1400,8 +1408,8 @@ def add_interval_patches_across_axes(
             kwds["facecolor"] = facecolor
 
         if bar_width_data_coords is not None:
-            x_left -= bar_width_data_coords/2
-            x_right += bar_width_data_coords/2
+            x_left -= bar_width_data_coords / 2
+            x_right += bar_width_data_coords / 2
 
         patch = mpatches.Rectangle(
             xy=(x_left, fig_y_for_lower_rectangle_end),
@@ -1415,7 +1423,8 @@ def add_interval_patches_across_axes(
         fig.add_artist(patch)
         patch.set_clip_on(True)
         blended_clipbox_transform = mtransforms.blended_transform_factory(
-            lower_ax.transAxes, fig.transFigure)
+            lower_ax.transAxes, fig.transFigure
+        )
         clip_box = mtransforms.TransformedBbox(
             mtransforms.Bbox(
                 [[0, fig_y_for_lower_rectangle_end], [1, fig_y_for_upper_rectangle_end]]
