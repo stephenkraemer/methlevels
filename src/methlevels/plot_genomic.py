@@ -730,6 +730,7 @@ def plot_genomic_region_track(
     space_between_rows_in=0.1 / 2.54,
     patch_height_in=0.4 / 2.54,
     label_fontsize: Optional[float] = None,
+        bar_width_data_coord: Optional[float] = None,
 ):
     """Plot a single, non-overlapping set of genomic regions onto an Axes
 
@@ -767,6 +768,9 @@ def plot_genomic_region_track(
         axes title, added at title_side; label size is taken from mpl.rcParams["axes.titlesize"]
     title_size
         fontsize for track title, if None defaults to mpl.rcParams["axes.titlesize"]
+    bar_width_data_coord
+        optionally, extend intervals by bar_width_data_coords/2 to align them with bars
+        or potentially also with other markers plotted at the interval boundaries
     """
 
     # arg handling
@@ -823,6 +827,9 @@ def plot_genomic_region_track(
 
     else:
         size_of_one_track_row_with_spacer_in = patch_height_in + space_between_rows_in
+
+    if bar_width_data_coord is not None:
+        granges_df = granges_df.assign(Start = lambda df: df.Start.subtract(bar_width_data_coord / 2), End = lambda df: df.End.add(bar_width_data_coord / 2))
 
     itvls_with_labels = add_label_positions_to_intervals(
         itvls=granges_df, ax=ax, xlim=xlim, fontsize=label_fontsize
@@ -1314,7 +1321,7 @@ def get_single_row_genomic_track_height(
 
 
 def add_interval_patches_across_axes(
-    lower_ax, upper_ax, itvls, facecolors=None, **kwds
+        lower_ax, upper_ax, itvls, facecolors=None, bar_width_data_coords: Optional[float] = None, **kwds
 ):
     """
 
@@ -1324,6 +1331,9 @@ def add_interval_patches_across_axes(
         [(x_left, x_right), (x_left2, xright_2), ...]
     facecolors
         list of colors
+    bar_width_data_coords
+        optionally, extend intervals by bar_width_data_coords/2 to align them with bars
+        or potentially also with other markers plotted at the interval boundaries
     **kwds
         passed to mpatches.Rectangle
         do not pass zorder, clip_on
@@ -1352,6 +1362,9 @@ def add_interval_patches_across_axes(
     lower_ax = axes[-1]
     upper_ax = axes[0]
     """
+
+    default_kwds = dict(linewidth=0)
+    kwds = default_kwds | kwds
 
     # to avoid problems with indexing into series with numeric indexes
     assert isinstance(facecolors, list)
@@ -1385,6 +1398,10 @@ def add_interval_patches_across_axes(
         if facecolors is not None:
             facecolor = facecolors[i]
             kwds["facecolor"] = facecolor
+
+        if bar_width_data_coords is not None:
+            x_left -= bar_width_data_coords/2
+            x_right += bar_width_data_coords/2
 
         patch = mpatches.Rectangle(
             xy=(x_left, fig_y_for_lower_rectangle_end),
