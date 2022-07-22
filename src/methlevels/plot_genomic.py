@@ -773,6 +773,17 @@ def plot_genomic_region_track(
         or potentially also with other markers plotted at the interval boundaries
     """
 
+    # NOTE
+    # NOTE
+    # NOTE
+    # the track height determination code is copy-paste linked between
+    # - plot_genomic_region_track
+    # - plot_genomic_region_track_get_height
+    # any changes must be synced between the two until this is refactored
+    # NOTE
+    # NOTE
+    # NOTE
+
     # arg handling
     if label_fontsize is None:
         label_fontsize = mpl.rcParams["xtick.labelsize"]
@@ -828,6 +839,8 @@ def plot_genomic_region_track(
     else:
         size_of_one_track_row_with_spacer_in = patch_height_in + space_between_rows_in
 
+    # make rectangle patches align with bars of width bar_width_data_coord centered at the
+    # interval boundaries
     if bar_width_data_coord is not None:
         granges_df = granges_df.assign(
             Start=lambda df: df.Start.subtract(bar_width_data_coord / 2),
@@ -979,12 +992,25 @@ def plot_genomic_region_track_get_height(
     granges_gr,
     axes_width,
     xlim,
+    bar_width_data_coords=None,
     show_names=False,
     space_between_label_and_patch_in=0.1 / 2.54,
     space_between_rows_in=0.1 / 2.54,
     patch_height_in=0.4 / 2.54,
     label_fontsize: Optional[float] = None,
 ):
+
+    # NOTE
+    # NOTE
+    # NOTE
+    # the track height determination code is copy-paste linked between
+    # - plot_genomic_region_track
+    # - plot_genomic_region_track_get_height
+    # any changes must be synced between the two until this is refactored
+    # NOTE
+    # NOTE
+    # NOTE
+
 
     # height is irrelevant, we just get text height from axes transform which works independent of height
     # width is relevant because we need to vertically dodge intervals with overlapping labels
@@ -1035,6 +1061,12 @@ def plot_genomic_region_track_get_height(
 
     else:
         size_of_one_track_row_with_spacer_in = patch_height_in + space_between_rows_in
+
+    if bar_width_data_coords is not None:
+        granges_df = granges_df.assign(
+            Start=lambda df: df.Start.subtract(bar_width_data_coords / 2),
+            End=lambda df: df.End.add(bar_width_data_coords / 2),
+        )
 
     itvls_with_labels = add_label_positions_to_intervals(
         itvls=granges_df, ax=ax, xlim=xlim, fontsize=label_fontsize

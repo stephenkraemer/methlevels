@@ -487,14 +487,18 @@ def _smoothed_monotonic_spline2(
         columns: Start, subject, beta_value
     """
 
-    # TODO: improve
     # fill nan positions with linear intrapolation (and extrapolation if necessary)
-    # note that extrapolation with scipy.interpolate.interp1d only fills the closest default value
     if beta_value_ser.isna().any():
         print(
-            f"WARNING: input data contain NA values for {subject}. Using 1D interpolation prior to spline computation. Especially if NAs are present at the region boundaries, this can distort the profile."
+            f"WARNING: input data contain NA values for {subject}. "
+            "Using 1D interpolation prior to spline computation. "
+            "Especially if NAs are present at the region boundaries, this can distort the profile."
         )
-        beta_value_ser = beta_value_ser.interpolate("linear", fill_value="extrapolate")
+        beta_value_ser = beta_value_ser.interpolate(
+            "slinear",  # scipy linear, do not use 'linear' which is the pandas implementation
+            limit_direction='both',  # to prevent pandas from masking extrapolated values (the default)
+            fill_value="extrapolate",  # passed to scipy via **kwds to enable extrapolation
+            )
 
     # CpG positions are the observed /xin/ positions used to construct the spline
     spline = interpolate.PchipInterpolator(
@@ -519,7 +523,7 @@ def _smoothed_monotonic_spline2(
     )
 
 
-def _smoothed_monotonic_spline(beta_value_df: pd.DataFrame) -> pd.DataFrame:
+def _smoothed_monotonic_spline_obsolete_unused_do_use_newer_version(beta_value_df: pd.DataFrame) -> pd.DataFrame:
     """Interpolate (pos, beta_value) points with a smoothed cubic monotonic spline
 
     The monotonic spline creates natural connection lines between the (pos, beta_value)
