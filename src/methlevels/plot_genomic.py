@@ -731,6 +731,7 @@ def plot_genomic_region_track(
     patch_height_in=0.4 / 2.54,
     label_fontsize: Optional[float] = None,
     bar_width_data_coord: Optional[float] = None,
+    compute_row_placement_for_vertical_interval_dodge_kwds: Optional[Dict] = None,
 ):
     """Plot a single, non-overlapping set of genomic regions onto an Axes
 
@@ -855,6 +856,7 @@ def plot_genomic_region_track(
     rows_ser = compute_row_placement_for_vertical_interval_dodge(
         intervals=itvls_with_labels,
         ax=ax,
+        **compute_row_placement_for_vertical_interval_dodge_kwds,
     )
     n_rows = rows_ser.max() + 1
 
