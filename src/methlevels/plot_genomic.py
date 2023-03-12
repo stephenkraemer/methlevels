@@ -556,7 +556,7 @@ def _get_sorted_transcript_parts(df):
             # transcript parts (exons, utrs) sorted by ascending Start per transcript
             # [['Chromosome', 'Start', 'End', 'transcript_id']]
             # .assign(Chromosome = lambda df: df.Chromosome.astype(str))
-            .groupby("transcript_id")
+            .groupby("transcript_id", group_keys=True)
             .apply(lambda df: df.sort_values(["Start", "End"]))
             .droplevel(-1)
         )
@@ -870,7 +870,7 @@ def plot_genomic_region_track(
 
     # map itvl_idx -> ylow of rectangle patch
     itvl_ylow = pd.Series(dtype="f4")
-    for itvl_idx, row_idx in rows_ser.iteritems():
+    for itvl_idx, row_idx in rows_ser.items():
         itvl_ylow.loc[itvl_idx] = coutils.convert_inch_to_data_coords(
             size=(
                 ymargin_bottom_and_top_spacer_in
