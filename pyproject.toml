@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "methlevels"
+version = "0.1"
+authors=[
+  {name = "Stephen Kraemer", email = "stephenkraemer@gmail.com"},
+]
+license={text = "MIT"}
+requires-python = ">= 3.10"
+dependencies = [
+    'pandas',
+    'joblib',
+    'matplotlib',
+    'seaborn',
+    'numpy',
+    'pyranges',
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ['docs']
