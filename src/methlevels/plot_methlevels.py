@@ -153,7 +153,7 @@ def bar_plot(
 
     beta_values = _prepare_beta_values(beta_values, subject_order)
     assert (
-        beta_values.groupby("subject")
+        beta_values.groupby("subject", observed=True)
         .apply(lambda df: df.sort_values(["Chromosome", "Start", "End"]).equals(df))
         .all()
     )
@@ -230,7 +230,7 @@ def bar_plot(
 
     # get integer bar width, make it even so that we can extend bar evenly on both sites of CpG dimer
     if minimum_bar_width_pt is not None:
-        min_bar_width_bp = _get_bar_width_bp(axes[0], minimum_bar_width_pt, motif_size)
+        min_bar_width_bp = _get_bar_width_bp(axes.iloc[0], minimum_bar_width_pt, motif_size)
     else:
         min_bar_width_bp = motif_size
 
@@ -303,7 +303,7 @@ def bar_plot(
     if show_splines:
 
         spline_dfs = []
-        for subject, subject_df in beta_values_w2.groupby("subject"):
+        for subject, subject_df in beta_values_w2.groupby("subject", observed=True):
             spline_dfs.append(
                 _smoothed_monotonic_spline2(
                     beta_value_ser=subject_df["beta_value"],
@@ -314,9 +314,9 @@ def bar_plot(
         beta_value_lines = pd.concat(spline_dfs)
 
     for i, (subject, group_df) in enumerate(
-        beta_values_w2.groupby("subject", sort=True)
+        beta_values_w2.groupby("subject", observed=True, sort=True)
     ):
-        axes[i].bar(
+        axes.iloc[i].bar(
             x=group_df["center"],
             height=group_df["beta_value"],
             width=min_bar_width_bp,
@@ -328,7 +328,7 @@ def bar_plot(
         )
         if show_splines:
             view = beta_value_lines.loc[subject]
-            axes[i].plot(
+            axes.iloc[i].plot(
                 view["Start"],
                 view["beta_value"],
                 color=palette[subject],
@@ -414,7 +414,7 @@ def bar_plot(
                         ax.axvline(pos, **merged_region_boundaries_kws)
         # %%
 
-    last_ax = axes[-1]
+    last_ax = axes.iloc[-1]
     # currently bug - does not remove trailing zeros from offset
     # last_ax.xaxis.set_major_formatter(mticker.ScalarFormatterQuickfixed(useOffset=True))
     last_ax.xaxis.set_major_formatter(coutils.ScalarFormatterQuickfixed(useOffset=True))
@@ -428,12 +428,12 @@ def bar_plot(
         )
 
     offset_text_size = mpl.rcParams["xtick.labelsize"] - 1
-    axes[-1].xaxis.get_offset_text().set_size(offset_text_size)
+    axes.iloc[-1].xaxis.get_offset_text().set_size(offset_text_size)
 
     # shift the xlabel position, because the offset label is currently not considered by constrained layout
     # note that mpl.rcParams gives the current rcParams, ie it respects changes made by context managers such as mpl.rc_context
     if xlabel is not None:
-        axes[-1].set_xlabel(
+        axes.iloc[-1].set_xlabel(
             xlabel, labelpad=offset_text_size + mpl.rcParams["axes.labelsize"]
         )
 
